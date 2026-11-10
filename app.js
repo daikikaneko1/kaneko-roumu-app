@@ -10,7 +10,7 @@ const OPT = () => ({ includeDone: localStorage.getItem(KEY.showDone) === '1' });
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 let sync = null, saveTimer = null;
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // 日本時間
-const ui = { trade: 'doko', fy: null, sumMode: 'month', sumFY: null, sumYm: null, gridFY: null, calYm: null, sel: null, range: false, r1: null, r2: null };
+const ui = { trade: 'doko', fy: null, sumMode: 'month', sumFY: null, sumYm: null, gridFY: null, calYm: null, sel: null, range: false, multi: false, ms: [], mFrom: null, mTo: null, r1: null, r2: null };
 
 // ---------- 起動 ----------
 async function boot() {
@@ -97,7 +97,8 @@ function render() {
   showStatus();
 }
 const handlers = {};
-function bind() { $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; }); }
+function bind() { ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
+  $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; }); }
 const tradeTabs = () => `<div class="tabs ${ui.trade}">${Object.entries(L.TRADES).map(([k, v]) => `<button data-a="trade|${k}" class="${ui.trade === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
 const fyTabs = (cur, act) => `<div class="tabs">${Array.from({ length: D().settings.years }, (_, i) => D().settings.firstFY + i).map(fy => `<button data-a="${act}|${fy}" class="${cur === fy ? 'on' : ''}">${fy}年度${fy === D().settings.dailyFY ? '<br><small>日別</small>' : ''}</button>`).join('')}</div>`;
 handlers.trade = t => { ui.trade = t; render(); };
@@ -151,9 +152,21 @@ function vSite(id) {
       <div class="stepper"><button data-a="mstep|${s.id}|${ym}|-1">−</button><div class="val" data-a="medit|${s.id}|${ym}">${L.fmt1(mi.value) || '0'}</div><button data-a="mstep|${s.id}|${ym}|1">＋</button></div></div>`;
   }
   if (ui.fy === doc.settings.dailyFY) h += `<p class="muted">${ui.fy}年度の合計人工：${fyN}人工。この年度は日別が元データです。月の数字を変えると、その月の稼働日に整数で割り振り直します。</p>`;
+  h += siteSalesCard(doc, s);
   return h;
 }
 handlers.fy = fy => { ui.fy = Number(fy); render(); };
+// 現場の売上見込み（人工×単価）。単価が無ければ 0円 ではなく設定を促す
+function siteSalesCard(doc, s) {
+  const fyS = L.siteSales(doc, s, L.fyMonths(ui.fy)), all = L.siteSales(doc, s, L.allMonths(doc));
+  const y = doc.settings.firstFY, last = y + doc.settings.years - 1;
+  let h = `<h3>売上見込み</h3><div class="card sales">`;
+  if (!all.price) return h + `<p class="warn">💴 ${L.TRADES[s.trade]}の単価（円/人工）がまだ入っていません。単価を入れると売上見込みが出ます。</p><button class="wide" data-a="go|settings">⚙️ 設定で単価を入れる</button><button class="wide" data-a="go|edit/${s.id}">この現場だけの単価を入れる</button></div>`;
+  h += `<div class="flex"><div><small class="muted">${ui.fy}年度</small><b class="yen">${L.yen(fyS.sales)}円</b><small class="muted">${L.yen(fyS.ninku)}人工</small></div>
+    <div><small class="muted">5カ年（${y}～${last}年度）</small><b class="yen">${L.yen(all.sales)}円</b><small class="muted">${L.yen(all.ninku)}人工</small></div></div>
+    <p class="muted small">単価 ${L.yen(all.price)}円/人工（${all.own ? 'この現場だけの単価' : '設定の' + L.TRADES[s.trade] + '単価'}）× 人工（${L.estName(doc)}・集計の稼働予測と同じ）</p></div>`;
+  return h;
+}
 function setMonth(id, ym, v) {
   const doc = D(), s = site(id); v = Math.max(0, L.round2(v));
   if (L.inWindow(doc, ym)) {
@@ -184,16 +197,24 @@ function vEdit(id) {
    <div class="flex"><div>${tx('start', '工期（始）', 'R08.06')}</div><div>${tx('end', '工期（終）', 'R10.12')}</div></div>
    <label class="f">月数</label><input type="number" inputmode="decimal" data-k="months" value="${esc(d.months ?? '')}">
    ${tx('note', 'メモ')}
+   <label class="f">この現場の曜日（定休日・日曜稼働など）</label>
+   <p class="muted small" style="margin:0 0 4px">タップで「通常（会社カレンダーどおり）→ 休み → 出勤」と切り替え。例：水曜定休なら 水＝休み、日曜も動くなら 日＝出勤。祝日・会社の休みはそのまま（日別画面で1日ずつ出勤にできます）。</p>
+   <div class="week">${L.WEEKDAYS.map((w, i) => { const v = (d.week || {})[i]; return `<button data-a="wk|${i}" class="${v || ''}"><b>${w}</b><small>${v === 'off' ? '休み' : v === 'work' ? '出勤' : '通常'}</small></button>`; }).join('')}</div>
+   <label class="f">この現場だけの単価（円/人工）</label>
+   <input type="number" inputmode="numeric" data-k="unitPrice" value="${esc(d.unitPrice ?? '')}" placeholder="${L.cleanPrice(D().settings.unitPrice?.[d.trade]) ? `空なら設定の単価 ${L.yen(L.cleanPrice(D().settings.unitPrice[d.trade]))}円` : '空なら設定の単価（いまは未設定）'}">
    <button class="primary wide" data-a="dsave">保存する</button>
    ${isNew ? '' : (L.isDone(site(id) || {}) ? `<button class="wide" data-a="doneUnset|${id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${id}">🏁 竣工にする</button>`)}
    ${isNew ? '' : '<button class="danger wide" data-a="ddel">この現場を削除</button>'}`;
 }
 function readDraft() { document.querySelectorAll('[data-k]').forEach(i => { draft[i.dataset.k] = i.type === 'number' ? (i.value === '' ? null : Number(i.value)) : i.value.trim(); }); }
+handlers.wk = i => { readDraft(); const w = { ...(draft.week || {}) }; w[i] = !w[i] ? 'off' : w[i] === 'off' ? 'work' : undefined; if (!w[i]) delete w[i]; draft.week = w; render(); };
 handlers.dset = (k, v) => { readDraft(); draft[k] = v; if (k === 'division') draft._divSet = true; if (k === 'category' && draft._for === 'new' && !draft._divSet) draft.division = v === '改修' ? '2' : '1'; render(); };
 handlers.dsave = () => {
   readDraft(); if (!draft.name) { alert('工事名を入れてください'); return; }
   const isNew = draft._for === 'new'; const id = isNew ? L.newId() : draft.id;
   const f = {}; for (const k of ['trade', 'category', 'division', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
+  f.week = L.cleanWeek(draft.week); f.unitPrice = L.cleanPrice(draft.unitPrice);
+  if (draft.unitPrice != null && draft.unitPrice !== '' && !f.unitPrice) { alert('単価は 1円以上の数字で入れてください（空なら設定の単価を使います）'); return; }
   if (isNew) f.order = Math.max(0, ...D().sites.map(s => s.order ?? 0)) + 1;
   const orig = isNew ? null : site(id);
   if (f.kubun === L.DONE && (!orig || orig.kubun !== L.DONE)) f.prevKubun = orig ? orig.kubun : '';
@@ -218,46 +239,77 @@ function vDay(id, ym) {
   const doc = D(), s = site(id); if (!s) return '<p>現場が見つかりません</p>';
   const months = L.fyMonths(doc.settings.dailyFY);
   if (!months.includes(ym)) ym = months.includes(curYm()) ? curYm() : months[0];
-  const arr = (s.daily && s.daily[ym]) || []; const mi = L.monthInfo(doc, s, ym);
-  if (ui.dayKey !== id + ym) { ui.dayKey = id + ym; ui.sel = null; ui.r1 = ui.r2 = null; }
+  const arr = (s.daily && s.daily[ym]) || []; const mi = L.monthInfo(doc, s, ym); const dates = L.datesOfMonth(ym), last = dates.length;
+  if (ui.dayKey !== id + ym) { ui.dayKey = id + ym; ui.sel = null; ui.r1 = ui.r2 = null; ui.ms = []; ui.mFrom = 1; ui.mTo = last; }
   const inR = d => ui.r1 && ui.r2 && d >= (ui.r1 < ui.r2 ? ui.r1 : ui.r2) && d <= (ui.r1 < ui.r2 ? ui.r2 : ui.r1);
+  const mode = ui.multi ? 2 : ui.range ? 1 : 0;
   let h = `<button data-a="go|site/${id}">‹ ${esc(s.name)}</button>
    <h2>日別入力 <small class="muted">${L.TRADES[s.trade]}</small></h2>${monthNav(ym, 'dmon|' + id, months)}
-   <p>この月：<b>${mi.ninku}</b>人工 ／ 稼働 <b>${mi.wd}</b>日 ／ 平均 <b>${L.fmt1(mi.value) || '0'}</b>人/日 ${mi.edited ? '<span class="badge">手入力あり</span>' : ''}</p>
-   <div class="tabs"><button data-a="rmode|0" class="${!ui.range ? 'on' : ''}">1日ずつ</button><button data-a="rmode|1" class="${ui.range ? 'on' : ''}">期間でまとめて</button></div>`;
+   <p>この月：<b>${mi.ninku}</b>人工 ／ 稼働 <b>${mi.wd}</b>日${mi.offWork ? `<small>（うち休みの日に出勤 ${mi.offWork}日）</small>` : ''} ／ 平均 <b>${L.fmt1(mi.value) || '0'}</b>人/日 ${mi.edited ? '<span class="badge">手入力あり</span>' : ''}</p>
+   <div class="tabs"><button data-a="rmode|0" class="${mode === 0 ? 'on' : ''}">1日ずつ</button><button data-a="rmode|1" class="${mode === 1 ? 'on' : ''}">期間でまとめて</button><button data-a="rmode|2" class="${mode === 2 ? 'on' : ''}">複数えらぶ</button></div>`;
   h += calCells(ym, d => {
     const sd = L.siteDay(doc, s, d), v = arr[Number(d.slice(8)) - 1] || 0;
-    const cls = ['d', sd.work ? '' : 'off', ui.sel === d ? 'sel' : '', inR(d) ? 'inr' : '', sd.override ? 'ovr' : ''].join(' ');
-    return `<div class="${cls}" data-a="dtap|${d}"><span class="n">${Number(d.slice(8))}</span><span class="v">${v || (sd.work ? '' : '')}</span><span class="r">${sd.work ? '' : esc(sd.reason)}</span></div>`;
+    const cls = ['d', sd.work ? '' : 'off', !sd.work && v ? 'offwork' : '', ui.sel === d && mode === 0 ? 'sel' : '', mode === 1 && inR(d) ? 'inr' : '', mode === 2 && ui.ms.includes(d) ? 'msel' : '', sd.override || sd.week ? 'ovr' : ''].join(' ');
+    return `<div class="${cls}" data-a="dtap|${d}"><span class="n">${Number(d.slice(8))}</span><span class="v">${v || ''}</span><span class="r">${sd.work ? (sd.week ? esc(sd.reason) : '') : esc(sd.reason)}</span></div>`;
   });
-  if (!ui.range && ui.sel) {
+  h += `<div class="legend"><span><i style="background:var(--off)"></i>休み（日曜・祝日・会社/現場の休み）</span><span><i style="background:#ffe0b2;border:1px solid #e69500"></i>休みの日に出勤</span>${mode === 2 ? '<span><i style="background:#cfe3ff;outline:2px solid var(--blue)"></i>選んだ日</span>' : ''}</div>`;
+  if (mode === 0 && ui.sel) {
     const sd = L.siteDay(doc, s, ui.sel), v = arr[Number(ui.sel.slice(8)) - 1] || 0;
-    h += `<div class="panel"><div class="center"><b>${Number(ui.sel.slice(5, 7))}月${Number(ui.sel.slice(8))}日（${WD[L.dow(ui.sel)]}）</b> ${sd.work ? '' : `<span class="muted">休み：${esc(sd.reason)}</span>`}</div>
+    h += `<div class="panel"><div class="center"><b>${Number(ui.sel.slice(5, 7))}月${Number(ui.sel.slice(8))}日（${WD[L.dow(ui.sel)]}）</b> ${sd.work ? '' : `<span class="muted">休み：${esc(sd.reason)}</span><br><small class="muted">休みの日でも入れられます（入れた日は稼働日に数えます）</small>`}</div>
       <div class="big flex" style="justify-content:center"><button data-a="dstep|${id}|-1" style="flex:none;width:72px;height:60px;font-size:28px">−</button><b style="flex:none;font-size:32px;min-width:60px;text-align:center">${v}</b><button data-a="dstep|${id}|1" style="flex:none;width:72px;height:60px;font-size:28px">＋</button><span style="flex:none">人</span></div>
       <button class="wide" data-a="doff|${id}">${sd.work ? 'この日はこの現場を休みにする' : 'この日はこの現場を出勤にする'}</button>
       ${sd.override ? `<button class="wide" data-a="dreset|${id}">会社カレンダーどおりに戻す</button>` : ''}</div>`;
-  } else if (ui.range) {
+  } else if (mode === 1) {
     const a = ui.r1 && ui.r2 ? [ui.r1, ui.r2].sort() : null;
-    const wds = a ? L.datesOfMonth(ym).filter(d => d >= a[0] && d <= a[1] && L.siteDay(doc, s, d).work) : [];
-    h += `<div class="panel">${!ui.r1 ? '始まりの日をタップ' : !ui.r2 ? '終わりの日をタップ' : `<b>${Number(a[0].slice(8))}日～${Number(a[1].slice(8))}日</b>（稼働日 ${wds.length}日）
+    const inP = a ? dates.filter(d => d >= a[0] && d <= a[1]) : [], wds = inP.filter(d => L.siteDay(doc, s, d).work);
+    h += `<div class="panel">${!ui.r1 ? '始まりの日をタップ' : !ui.r2 ? '終わりの日をタップ' : `<b>${Number(a[0].slice(8))}日～${Number(a[1].slice(8))}日</b>（稼働日 ${wds.length}日・休み ${inP.length - wds.length}日）
+      <button class="wide toggle ${ui.rOff ? 'on' : ''}" data-a="roff">${ui.rOff ? '☑' : '☐'} 休みの日にも入れる</button>
       <div class="big flex" style="justify-content:center"><button data-a="rstep|-1" style="flex:none;width:64px">−</button><input id="rv" type="number" inputmode="numeric" value="${ui.rv ?? 3}" style="flex:none;width:90px;text-align:center;font-size:24px"><button data-a="rstep|1" style="flex:none;width:64px">＋</button><span style="flex:none">人</span></div>
-      <button class="primary wide" data-a="rfill|${id}">この期間を <span id="rvl">${ui.rv ?? 3}</span>人にする</button><button class="wide" data-a="rclear">選び直す</button>`}</div>`;
-  } else h += '<p class="muted center">日にちをタップすると人数を変えられます</p>';
+      <button class="primary wide" data-a="rfill|${id}">この期間${ui.rOff ? '（休みの日も）' : 'の稼働日'}を <span id="rvl">${ui.rv ?? 3}</span>人にする</button><button class="wide" data-a="rclear">選び直す</button>`}</div>`;
+  } else if (mode === 2) {
+    const n = ui.ms.length, nOff = ui.ms.filter(d => !L.siteDay(doc, s, d).work).length;
+    const opts = sel => dates.map((d, i) => `<option value="${i + 1}" ${sel === i + 1 ? 'selected' : ''}>${i + 1}日（${WD[L.dow(d)]}）</option>`).join('');
+    const inP = dates.filter((d, i) => i + 1 >= ui.mFrom && i + 1 <= ui.mTo);
+    h += `<div class="panel multi"><p class="muted small" style="margin:0">日にちをタップで 選ぶ／外す。曜日ボタンで 期間の中のその曜日をまとめて選べます。</p>
+      <div class="flex prd"><select id="mfrom" aria-label="期間の始まり">${opts(ui.mFrom)}</select><span style="flex:none">～</span><select id="mto" aria-label="期間の終わり">${opts(ui.mTo)}</select></div>
+      <div class="wkpick">${WD.map((w, i) => { const ds = inP.filter(d => L.dow(d) === i), on = ds.length && ds.every(d => ui.ms.includes(d)); return `<button data-a="mwd|${i}" class="${on ? 'on' : ''} ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}" aria-pressed="${!!on}">${w}</button>`; }).join('')}</div>
+      <div class="flex qk"><button data-a="mq|alt">隔日</button><button data-a="mq|work">稼働日</button><button data-a="mq|all">全日</button><button data-a="mq|none">全部外す</button></div>
+      <p style="margin:6px 0"><b>選択中 ${n}日</b>${nOff ? `（うち休みの日 ${nOff}日）` : ''}${n ? `：<small>${ui.ms.slice().sort().map(d => Number(d.slice(8))).join('・')}日</small>` : ''}</p>
+      ${n ? `<div class="applybar"><div class="big flex" style="justify-content:center"><button data-a="mstepv|-1" style="flex:none;width:64px">−</button><input id="mv" type="number" inputmode="numeric" value="${ui.mv ?? 3}" style="flex:none;width:90px;text-align:center;font-size:24px"><button data-a="mstepv|1" style="flex:none;width:64px">＋</button><span style="flex:none">人</span></div>
+      <button class="primary wide" data-a="mfill|${id}">選んだ ${n}日を <span id="mvl">${ui.mv ?? 3}</span>人にする</button></div>` : ''}</div>`;
+  } else h += '<p class="muted center">日にちをタップすると人数を変えられます（日曜・祝日など休みの日も入れられます）</p>';
   return h;
 }
 handlers.dmon = (id, ym) => { if (ym) { ui.sel = null; location.hash = `day/${id}/${ym}`; } };
-handlers.rmode = v => { ui.range = v === '1'; ui.r1 = ui.r2 = ui.sel = null; render(); };
-handlers.dtap = d => { if (ui.range) { if (!ui.r1 || ui.r2) { ui.r1 = d; ui.r2 = null; } else ui.r2 = d; } else ui.sel = d; render(); };
+handlers.rmode = v => { ui.range = v === '1'; ui.multi = v === '2'; ui.r1 = ui.r2 = ui.sel = null; render(); };
+handlers.dtap = d => {
+  if (ui.multi) { ui.ms = ui.ms.includes(d) ? ui.ms.filter(x => x !== d) : [...ui.ms, d]; }
+  else if (ui.range) { if (!ui.r1 || ui.r2) { ui.r1 = d; ui.r2 = null; } else ui.r2 = d; } else ui.sel = d;
+  render();
+};
 const dayVal = (s, d) => ((s.daily && s.daily[d.slice(0, 7)]) || [])[Number(d.slice(8)) - 1] || 0;
 handlers.dstep = (id, k) => { const s = site(id); const v = Math.max(0, dayVal(s, ui.sel) + Number(k)); op({ t: 'day', id, date: ui.sel, v }); };
-handlers.doff = id => { const s = site(id); const sd = L.siteDay(D(), s, ui.sel); const comp = L.companyDay(D(), ui.sel).work;
+handlers.doff = id => { const s = site(id); const sd = L.siteDay(D(), s, ui.sel); const comp = L.siteDay(D(), { ...s, dayOverrides: {} }, ui.sel).work;
   const want = sd.work ? 'off' : 'work'; op({ t: 'siteDay', id, date: ui.sel, mode: (want === 'work') === comp ? null : want }); };
 handlers.dreset = id => op({ t: 'siteDay', id, date: ui.sel, mode: null });
 handlers.rstep = k => { const i = $('#rv'); ui.rv = Math.max(0, (Number(i.value) || 0) + Number(k)); i.value = ui.rv; $('#rvl').textContent = ui.rv; };
 handlers.rclear = () => { ui.r1 = ui.r2 = null; render(); };
+handlers.roff = () => { ui.rOff = !ui.rOff; render(); };
 handlers.rfill = id => { const v = Math.max(0, Math.round(Number($('#rv').value) || 0)); ui.rv = v; const doc = D(), s = site(id); const [a, b] = [ui.r1, ui.r2].sort();
-  const dates = L.datesOfMonth(a.slice(0, 7)).filter(d => d >= a && d <= b && L.siteDay(doc, s, d).work);
-  if (!dates.length) { alert('期間に稼働日がありません'); return; } op({ t: 'days', id, dates, v }); ui.r1 = ui.r2 = null; render(); };
+  const dates = L.datesOfMonth(a.slice(0, 7)).filter(d => d >= a && d <= b && (ui.rOff || L.siteDay(doc, s, d).work));
+  if (!dates.length) { alert('期間に稼働日がありません（休みの日にも入れるなら「休みの日にも入れる」をオン）'); return; } op({ t: 'days', id, dates, v }); ui.r1 = ui.r2 = null; render(); };
+// ---- 複数えらぶ（月水金・隔日など） ----
+function readPeriod() { const f = $('#mfrom'), t = $('#mto'); if (f && t) { ui.mFrom = Number(f.value); ui.mTo = Number(t.value); if (ui.mFrom > ui.mTo) [ui.mFrom, ui.mTo] = [ui.mTo, ui.mFrom]; } }
+function periodDates() { readPeriod(); const ym = ui.dayKey.slice(-7); return L.datesOfMonth(ym).filter((d, i) => i + 1 >= ui.mFrom && i + 1 <= ui.mTo); }
+const keepMv = () => { const i = $('#mv'); if (i) ui.mv = Math.max(0, Math.round(Number(i.value) || 0)); };
+handlers.mwd = w => { keepMv(); const ds = periodDates().filter(d => L.dow(d) === Number(w)); const on = ds.length && ds.every(d => ui.ms.includes(d));
+  ui.ms = on ? ui.ms.filter(d => !ds.includes(d)) : [...new Set([...ui.ms, ...ds])]; render(); };
+handlers.mq = k => { keepMv(); const ds = periodDates(), id = location.hash.split('/')[1], s = site(decodeURIComponent(id));
+  if (k === 'none') ui.ms = [];
+  else { const add = k === 'alt' ? ds.filter((d, i) => i % 2 === 0) : k === 'work' ? ds.filter(d => L.siteDay(D(), s, d).work) : ds; ui.ms = [...new Set([...ui.ms.filter(d => !ds.includes(d)), ...add])]; }
+  render(); };
+handlers.mstepv = k => { const i = $('#mv'); ui.mv = Math.max(0, (Number(i.value) || 0) + Number(k)); i.value = ui.mv; $('#mvl').textContent = ui.mv; };
+handlers.mfill = id => { keepMv(); const v = ui.mv ?? 3; if (!ui.ms.length) return; op({ t: 'days', id, dates: ui.ms.slice().sort(), v }); ui.ms = []; render(); };
 
 // ---------- 5カ年 ----------
 function vGrid() {
@@ -365,7 +417,8 @@ function vSum() {
       ${row('（比較）×22日', data.estFixed, R)}${row('（比較）カレンダー', data.estCalendar, R)}
       ${row('会社の稼働日数', data.companyWd, v => v)}${targets.length ? row(`余力（目標${targets[0].value}人−合計）`, data.total.map(v => targets[0].value - v), v => `<span style="color:${v < 0 ? '#c62828' : 'inherit'}">${L.fmt1(v) || 0}</span>`) : ''}
       </tbody></table></div>
-      <p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×会社の稼働日）。×22日＝Excelと同じく 合計×22。</p>`;
+      <p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×その現場の稼働日）。×22日＝Excelと同じく 合計×22。</p>`;
+    h += salesSection(doc, data, months, years, start);
   } else {
     const months = L.fyMonths(s.dailyFY); if (!months.includes(ui.sumYm)) ui.sumYm = months[0];
     const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d, OPTG()));
@@ -377,6 +430,26 @@ function vSum() {
       <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}<td>${dt.reduce((a, x) => a + trades.reduce((b, t) => b + x[t], 0), 0)}</td></tr></tbody></table></div>`;
   }
   h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ ${s.dailyFY}年度 日別CSV</button>`;
+  return h;
+}
+// ---- 売上見込み（人工×単価）：選んだ組・期間どおり ----
+function salesSection(doc, data, months, years, start) {
+  const up = doc.settings.unitPrice || {}, trades = [...new Set(data.series.map(x => x.trade))];
+  const missing = trades.filter(t => !L.cleanPrice(up[t]));
+  const per = `${start}年度${years > 1 ? `～${start + years - 1}年度` : ''}`;
+  let h = `<h3>売上見込み ${per}</h3>`;
+  const prompt = missing.length ? `<div class="card warn"><p>💴 ${missing.map(t => L.TRADES[t]).join('・')}の単価（円/人工）が未設定です。単価を入れると売上見込みが出ます。</p><button class="primary wide" data-a="go|settings">⚙️ 設定で単価を入れる</button></div>` : '';
+  if (data.salesTotal <= 0 && data.unpricedTotal > 0) return h + prompt;
+  const fyTot = []; for (let i = 0; i < years; i++) { const ms = L.fyMonths(start + i); fyTot.push([start + i, months.reduce((a, ym, k) => a + (ms.includes(ym) ? data.sales[k] : 0), 0)]); }
+  h += `<div class="card sales"><div class="flex"><div><small class="muted">期間の合計（${data.series.map(x => x.label).join('・')}）</small><b class="yen">${L.yen(data.salesTotal)}円</b><small class="muted">約${L.man(data.salesTotal)}万円</small></div></div>
+    ${years > 1 ? `<div class="fytot">${fyTot.map(([fy, v]) => `<span>${fy}年度 <b>${L.man(v)}</b>万円</span>`).join('')}</div>` : ''}
+    <p class="muted small" style="margin:4px 0 0">人工（稼働予測：${L.estName(doc)}）× 単価。単価：${Object.keys(L.TRADES).filter(t => trades.includes(t)).map(t => `${L.TRADES[t]} ${L.cleanPrice(up[t]) ? L.yen(L.cleanPrice(up[t])) + '円' : '未設定'}`).join('／')}${doc.sites.some(x => L.cleanPrice(x.unitPrice)) ? '（現場ごとの単価がある現場はそちらを優先）' : ''}</p>
+    ${data.unpricedTotal > 0 ? `<p class="warn small">単価が無いため含んでいない人工：${L.yen(data.unpricedTotal)}人工</p>` : ''}</div>${prompt}`;
+  const hd = months.map(ym => `<th class="${ym.endsWith('-04') ? 'fyb' : ''}">${years > 1 ? `${String(L.parseYm(ym).y).slice(2)}/` : ''}${L.parseYm(ym).m}月</th>`).join('');
+  const row = (lb, arr, un, cls = '') => `<tr class="${cls}"><td class="nm">${lb}</td>${arr.map((v, i) => `<td class="${months[i].endsWith('-04') ? 'fyb' : ''}">${!v && un && un[i] > 0 ? '<small class="warn">未設定</small>' : L.man(v)}</td>`).join('')}</tr>`;
+  h += `<div class="grid-wrap"><table class="grid"><thead><tr><th class="nm">売上見込み（万円）</th>${hd}</tr></thead><tbody>
+    ${data.series.map(x => row(`<i class="sw" style="background:${x.color}"></i>${x.label}`, x.sales, x.unpriced)).join('')}
+    ${row('選択の合計', data.sales, data.unpriced, 'tot')}</tbody></table></div>`;
   return h;
 }
 handlers.smode = m => { ui.sumMode = m; render(); };
@@ -426,13 +499,19 @@ handlers.roll = fy => { if (confirm(`日別の年度を ${fy}年度に進めま�
 // ---------- 設定 ----------
 function vSettings() {
   const doc = D();
-  return `<h2>設定</h2><div class="card"><label class="f">あなたの名前（保存の記録に残ります）</label><input type="text" id="who" value="${esc(localStorage.getItem(KEY.who) || '')}"><button class="wide" data-a="who">名前を保存</button></div>
+  const up = doc.settings.unitPrice || {};
+  const priceCard = `<div class="card"><h3 style="margin-top:0">単価（売上見込み用・円/人工）</h3>
+   ${Object.entries(L.TRADES).map(([t, n]) => { const p = L.cleanPrice(up[t]); return `<div class="row"><div class="lbl">${n}</div><div class="info">${p ? `<b style="font-size:20px;color:#222">${L.yen(p)}</b> 円/人工` : '<span class="warn">未設定</span>'}</div><button data-a="price|${t}">${p ? '変える' : '入れる'}</button>${p ? `<button data-a="priceClr|${t}">消す</button>` : ''}</div>`; }).join('')}
+   <p class="muted small">売上見込み＝人工×単価。集計・現場の画面・CSVに出ます。現場ごとに違う単価は、その現場の「現場の情報を直す」で入れられます。</p></div>`;
+  return `<h2>設定</h2>${priceCard}<div class="card"><label class="f">あなたの名前（保存の記録に残ります）</label><input type="text" id="who" value="${esc(localStorage.getItem(KEY.who) || '')}"><button class="wide" data-a="who">名前を保存</button></div>
    <div class="card"><p>最終更新：${esc(doc.updatedAt ? new Date(doc.updatedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '－')} ${esc(doc.updatedBy || '')}</p>
    <button class="wide" data-a="reload">最新を読み込む</button><button class="wide" data-a="savenow">今すぐ保存</button></div>
    <div class="card"><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ 日別CSV</button></div>
    <div class="card"><p class="muted small">このスマホに覚えた合言葉を消します（共用スマホ・機種変更のとき）。</p><button class="danger wide" data-a="lock">合言葉を忘れる</button></div>
    <p class="muted small">データ元：${esc(doc.source || '')}</p>`;
 }
+handlers.price = t => numberSheet({ title: `${L.TRADES[t]}の単価（円/人工）`, value: L.cleanPrice(D().settings.unitPrice?.[t]) || '', step: 1000, info: '1人工あたりの金額（税抜・税込は社内の決まりに合わせてください）', onOk: v => { if (!L.cleanPrice(v)) { alert('1円以上の数字を入れてください'); return; } op({ t: 'price', trade: t, v }); } });
+handlers.priceClr = t => { if (confirm(`${L.TRADES[t]}の単価を消しますか？（売上見込みが出なくなります）`)) op({ t: 'price', trade: t, v: null }); };
 handlers.who = () => { localStorage.setItem(KEY.who, $('#who').value.trim()); alert('保存しました'); };
 handlers.reload = async () => { if (sync.pending.length) await sync.save(localStorage.getItem(KEY.who) || '').catch(() => {}); await sync.load().catch(e => alert(e.message)); render(); };
 handlers.savenow = () => sync.save(localStorage.getItem(KEY.who) || '').then(render).catch(e => alert(e.message));
