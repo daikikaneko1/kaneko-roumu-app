@@ -2,6 +2,18 @@
 export const TRADES = { doko: '土工', tobi: '鳶工' };
 export const CATEGORIES = ['新築', '改修'];
 export const KUBUN = ['入', '現', '指', '計', '営', '応', '竣'];
+// 社内の工事部（元請の「部」とは別）。既定は 新築→一部、改修→二部
+export const DIVISIONS = { '1': '工事一部', '2': '工事二部' };
+export const divisionOf = s => (s.division === '1' || s.division === '2' ? s.division : (s.category === '改修' ? '2' : '1'));
+export const GROUPS = [
+  { key: 'tobi1', trade: 'tobi', division: '1', label: '鳶工 一部', color: '#1f5fa8' },
+  { key: 'tobi2', trade: 'tobi', division: '2', label: '鳶工 二部', color: '#4fb3a9' },
+  { key: 'doko1', trade: 'doko', division: '1', label: '土工 一部', color: '#c0392b' },
+  { key: 'doko2', trade: 'doko', division: '2', label: '土工 二部', color: '#f39c34' },
+];
+export const groupKey = s => s.trade + divisionOf(s);
+// 区分(division)が無い現場に既定値を入れる（入れた件数を返す）
+export function migrateDivision(doc) { let n = 0; for (const s of doc.sites) if (s.division !== '1' && s.division !== '2') { s.division = divisionOf(s); n++; } return n; }
 export const SAT_MODES = { none: '土曜は稼働（4週4閉所）', sat24: '第2・第4土曜は休み（4週6閉所）', all: '土曜は全部休み（4週8閉所）' };
 
 let HOLIDAYS = {};
@@ -83,7 +95,7 @@ export function spreadMonth(doc, site, ym, value) {
 
 // ---- 操作（op）: すべてここを通す。保存競合時はリモートの最新に同じ op を再適用する ----
 export function newId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-const SITE_FIELDS = ['trade', 'category', 'kubun', 'prevKubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note', 'order'];
+const SITE_FIELDS = ['trade', 'category', 'division', 'kubun', 'prevKubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note', 'order'];
 function cleanArr(arr) { return arr.some(v => v) ? arr : undefined; }
 
 export function applyOp(doc, op) {
@@ -164,7 +176,8 @@ export function rollWindow(doc, fy) {
 // ---- 竣工（区分＝竣）の表示切替：工期の終わりでは判断しない ----
 export const DONE = '竣';
 export const isDone = s => s.kubun === DONE;
-export const shown = (s, opt = {}) => !!opt.includeDone || !isDone(s);
+// opt.groups（例 ['tobi1','doko2']）を渡すとそのグループだけ
+export const shown = (s, opt = {}) => (!!opt.includeDone || !isDone(s)) && (!opt.groups || opt.groups.includes(groupKey(s)));
 // 竣工にする／竣工を解除（元の区分に戻す。不明なら「現」）。月・日の人数は消さない
 export function doneOp(s) { return { t: 'site', site: { id: s.id, kubun: DONE, prevKubun: s.kubun && s.kubun !== DONE ? s.kubun : (s.prevKubun || '') } }; }
 export function undoneOp(s) { return { t: 'site', site: { id: s.id, kubun: s.prevKubun && s.prevKubun !== DONE ? s.prevKubun : '現', prevKubun: '' } }; }
@@ -173,11 +186,13 @@ export function undoneOp(s) { return { t: 'site', site: { id: s.id, kubun: s.pre
 export function monthTotals(doc, ym, opt = {}) {
   const r = {};
   for (const t of Object.keys(TRADES)) r[t] = { 新築: 0, 改修: 0, 合計: 0, ninku: 0 };
+  r.groups = {}; for (const g of GROUPS) r.groups[g.key] = { value: 0, ninku: 0 };
   for (const s of doc.sites) {
     if (!shown(s, opt)) continue;
     const mi = monthInfo(doc, s, ym);
     const t = r[s.trade]; if (!t) continue;
     t[s.category === '改修' ? '改修' : '新築'] += mi.value; t.合計 += mi.value; t.ninku += mi.ninku;
+    const g = r.groups[groupKey(s)]; if (g) { g.value += mi.value; g.ninku += mi.ninku; }
   }
   const { m } = parseYm(ym);
   const fixed = (doc.settings.fixedDays && doc.settings.fixedDays[m]) || 22;
@@ -187,8 +202,18 @@ export function monthTotals(doc, ym, opt = {}) {
     r[t].est = doc.settings.estimateMode === 'fixed' ? r[t].estFixed : r[t].estCalendar;
     r[t].target = (doc.settings.targets && doc.settings.targets[t]) || 0;
   }
+  for (const g of GROUPS) { const x = r.groups[g.key]; x.estCalendar = x.ninku; x.estFixed = x.value * fixed; x.est = doc.settings.estimateMode === 'fixed' ? x.estFixed : x.estCalendar; }
   r.companyWd = workingDays(doc, null, ym); r.fixedDays = fixed;
   return r;
+}
+// 通期（startFY から years 年分）の月一覧
+export function periodMonths(startFY, years) { let a = []; for (let i = 0; i < years; i++) a = a.concat(fyMonths(startFY + i)); return a; }
+// 選んだグループの月別山積み（積み上げ用）と合計
+export function groupSeries(doc, months, groups, opt = {}) {
+  const tots = months.map(ym => monthTotals(doc, ym, opt));
+  const series = GROUPS.filter(g => groups.includes(g.key)).map(g => ({ ...g, values: tots.map(t => t.groups[g.key].value), est: tots.map(t => t.groups[g.key].est), estFixed: tots.map(t => t.groups[g.key].estFixed), estCalendar: tots.map(t => t.groups[g.key].estCalendar) }));
+  const sum = k => months.map((_, i) => series.reduce((a, s) => a + s[k][i], 0));
+  return { months, series, total: sum('values'), est: sum('est'), estFixed: sum('estFixed'), estCalendar: sum('estCalendar'), companyWd: tots.map(t => t.companyWd), fixedDays: tots.map(t => t.fixedDays) };
 }
 export function dayTotals(doc, date, opt = {}) {
   const ym = date.slice(0, 7), i = Number(date.slice(8)) - 1;
@@ -206,25 +231,27 @@ export function sortedSites(doc, trade, opt = {}) {
 }
 export function monthlyCsv(doc, opt = {}) {
   const months = allMonths(doc);
-  const head = ['職種', '新築/改修', '区分', '工事名', '部', '所長', '職長', '工期(始)', '工期(終)', '月数', ...months.map(ym => ym.replace('-', '/'))];
+  const head = ['職種', '新築/改修', '工事部', '区分', '工事名', '部', '所長', '職長', '工期(始)', '工期(終)', '月数', ...months.map(ym => ym.replace('-', '/'))];
   const rows = [head];
-  for (const s of sortedSites(doc, null, opt)) rows.push([TRADES[s.trade], s.category, s.kubun, s.name, s.bu, s.shocho, s.shokucho, s.start, s.end, s.months ?? '', ...months.map(ym => { const v = monthInfo(doc, s, ym).value; return v ? round2(v) : ''; })]);
+  for (const s of sortedSites(doc, null, opt)) rows.push([TRADES[s.trade], s.category, DIVISIONS[divisionOf(s)], s.kubun, s.name, s.bu, s.shocho, s.shokucho, s.start, s.end, s.months ?? '', ...months.map(ym => { const v = monthInfo(doc, s, ym).value; return v ? round2(v) : ''; })]);
   const tots = months.map(ym => monthTotals(doc, ym, opt));
   for (const t of Object.keys(TRADES)) {
-    for (const k of ['新築', '改修', '合計']) rows.push([TRADES[t], '', '', `${TRADES[t]}${k === '合計' ? '合計' : k + '計'}`, '', '', '', '', '', '', ...tots.map(x => round2(x[t][k]))]);
-    rows.push([TRADES[t], '', '', `月間稼働予測（${doc.settings.estimateMode === 'fixed' ? '×22日固定' : 'カレンダー稼働日'}）`, '', '', '', '', '', '', ...tots.map(x => Math.round(x[t].est))]);
+    for (const k of ['新築', '改修', '合計']) rows.push([TRADES[t], '', '', '', `${TRADES[t]}${k === '合計' ? '合計' : k + '計'}`, '', '', '', '', '', '', ...tots.map(x => round2(x[t][k]))]);
+    rows.push([TRADES[t], '', '', '', `月間稼働予測（${doc.settings.estimateMode === 'fixed' ? '×22日固定' : 'カレンダー稼働日'}）`, '', '', '', '', '', '', ...tots.map(x => Math.round(x[t].est))]);
   }
-  rows.push(['', '', '', '会社の稼働日数', '', '', '', '', '', '', ...tots.map(x => x.companyWd)]);
+  for (const g of GROUPS) if (!opt.groups || opt.groups.includes(g.key)) rows.push([TRADES[g.trade], '', DIVISIONS[g.division], '', `${g.label} 計`, '', '', '', '', '', '', ...tots.map(x => round2(x.groups[g.key].value))]);
+  if (opt.groups) rows.push(['', '', '', '', `選択合計（${opt.groups.map(k => GROUPS.find(g => g.key === k)?.label).join('・')}）`, '', '', '', '', '', '', ...tots.map(x => round2(GROUPS.reduce((a, g) => a + (opt.groups.includes(g.key) ? x.groups[g.key].value : 0), 0)))]);
+  rows.push(['', '', '', '', '会社の稼働日数', '', '', '', '', '', '', ...tots.map(x => x.companyWd)]);
   return '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
 export function dailyCsv(doc, opt = {}) {
   const fy = doc.settings.dailyFY; let dates = [];
   for (const ym of fyMonths(fy)) dates = dates.concat(datesOfMonth(ym));
-  const rows = [['職種', '新築/改修', '区分', '工事名', ...dates.map(d => d.slice(5).replace('-', '/'))]];
-  rows.push(['', '', '', '会社カレンダー', ...dates.map(d => (companyDay(doc, d).work ? '' : '休'))]);
+  const rows = [['職種', '新築/改修', '工事部', '区分', '工事名', ...dates.map(d => d.slice(5).replace('-', '/'))]];
+  rows.push(['', '', '', '', '会社カレンダー', ...dates.map(d => (companyDay(doc, d).work ? '' : '休'))]);
   for (const s of sortedSites(doc, null, opt)) {
-    rows.push([TRADES[s.trade], s.category, s.kubun, s.name, ...dates.map(d => { const a = s.daily && s.daily[d.slice(0, 7)]; const v = a ? a[Number(d.slice(8)) - 1] : 0; return v || ''; })]);
+    rows.push([TRADES[s.trade], s.category, DIVISIONS[divisionOf(s)], s.kubun, s.name, ...dates.map(d => { const a = s.daily && s.daily[d.slice(0, 7)]; const v = a ? a[Number(d.slice(8)) - 1] : 0; return v || ''; })]);
   }
-  for (const t of Object.keys(TRADES)) rows.push([TRADES[t], '', '', `${TRADES[t]}合計`, ...dates.map(d => dayTotals(doc, d, opt)[t] || '')]);
+  for (const t of Object.keys(TRADES)) rows.push([TRADES[t], '', '', '', `${TRADES[t]}合計`, ...dates.map(d => dayTotals(doc, d, opt)[t] || '')]);
   return '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
