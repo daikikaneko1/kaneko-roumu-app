@@ -35,7 +35,7 @@ function fatal(msg) { $('#main').innerHTML = `<div class="card login"><h2>労務
 function loginScreen(err = '') {
   $('#nav').hidden = true;
   $('#main').innerHTML = `<div class="card login"><h2>合言葉を入れてください</h2>
-    <p class="muted">一度入れると、このスマホでは次から入れなくて大丈夫です。</p>
+    <p class="muted">一度入れると、この端末では次から入れなくて大丈夫です。</p>
     ${err ? `<p style="color:#c62828">${esc(err)}</p>` : ''}
     <input id="pass" type="password" autocomplete="current-password" placeholder="合言葉">
     <button class="primary wide" id="go">開く</button><p id="msg" class="muted"></p></div>`;
@@ -98,7 +98,12 @@ function render() {
 }
 const handlers = {};
 function bind() { ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
-  $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; }); }
+  $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; });
+  const enter = (sel, fn) => { const el = $(sel); if (el) el.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); fn(); } }; };
+  enter('#who', () => handlers.who());
+  enter('#rv', () => { const b = document.querySelector('[data-a^="rfill|"]'); if (b) b.click(); });
+  enter('#mv', () => { const b = document.querySelector('[data-a^="mfill|"]'); if (b) b.click(); });
+}
 const tradeTabs = () => `<div class="tabs ${ui.trade}">${Object.entries(L.TRADES).map(([k, v]) => `<button data-a="trade|${k}" class="${ui.trade === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
 const fyTabs = (cur, act) => `<div class="tabs">${Array.from({ length: D().settings.years }, (_, i) => D().settings.firstFY + i).map(fy => `<button data-a="${act}|${fy}" class="${cur === fy ? 'on' : ''}">${fy}年度${fy === D().settings.dailyFY ? '<br><small>日別</small>' : ''}</button>`).join('')}</div>`;
 handlers.trade = t => { ui.trade = t; render(); };
@@ -122,13 +127,14 @@ function vList() {
   let h = `<h2>現場一覧</h2>${tradeTabs()}${doneToggle(ui.trade)}`;
   for (const cat of L.CATEGORIES) {
     const list = L.sortedSites(doc, ui.trade, OPT()).filter(s => s.category === cat);
-    h += `<h3>${cat}（${list.length}件）</h3>`;
+    h += `<h3>${cat}（${list.length}件）</h3><div class="sitelist">`;
     for (const s of list) {
       const mi = L.monthInfo(doc, s, ym);
       h += `<div class="card site" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span>
         <div><div class="nm">${esc(s.name)}${divBadge(s)}${doneBadge(s)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
         <div class="now">${L.parseYm(ym).m}月<b>${L.fmt1(mi.value) || '0'}</b>人/日</div></div>`;
     }
+    h += '</div>';
   }
   h += `<button class="primary wide" data-a="go|edit/new">＋ 現場を追加（${L.TRADES[ui.trade]}）</button>`;
   return h;
@@ -143,7 +149,7 @@ function vSite(id) {
     <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}・${L.DIVISIONS[L.divisionOf(s)]}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
     <button class="wide" data-a="go|edit/${s.id}">✏️ 現場の情報を直す</button>
     ${L.isDone(s) ? `<p class="muted small">この現場は竣工です（一覧・集計では「竣工も表示」をオンにしたときだけ出ます）。</p><button class="wide" data-a="doneUnset|${s.id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${s.id}">🏁 竣工にする</button>`}</div>
-    <h3>月別の人数（1日あたり平均）</h3>${fyTabs(ui.fy, 'fy')}`;
+    <h3>月別の人数（1日あたり平均）</h3>${fyTabs(ui.fy, 'fy')}<div class="monthrows">`;
   let fyN = 0;
   for (const ym of L.fyMonths(ui.fy)) {
     const mi = L.monthInfo(doc, s, ym); fyN += mi.ninku;
@@ -151,6 +157,7 @@ function vSite(id) {
       <div class="info">${mi.daily ? `人工 ${mi.ninku}・稼働 ${mi.wd}日 ${mi.edited ? '<span class="badge">日別で手入力</span>' : ''}<br><a href="#day/${s.id}/${ym}">日別 ›</a>` : `<span class="muted">月の値</span>`}</div>
       <div class="stepper"><button data-a="mstep|${s.id}|${ym}|-1">−</button><div class="val" data-a="medit|${s.id}|${ym}">${L.fmt1(mi.value) || '0'}</div><button data-a="mstep|${s.id}|${ym}|1">＋</button></div></div>`;
   }
+  h += '</div>';
   if (ui.fy === doc.settings.dailyFY) h += `<p class="muted">${ui.fy}年度の合計人工：${fyN}人工。この年度は日別が元データです。月の数字を変えると、その月の稼働日に整数で割り振り直します。</p>`;
   h += siteSalesCard(doc, s);
   return h;
@@ -246,13 +253,13 @@ function vDay(id, ym) {
   let h = `<button data-a="go|site/${id}">‹ ${esc(s.name)}</button>
    <h2>日別入力 <small class="muted">${L.TRADES[s.trade]}</small></h2>${monthNav(ym, 'dmon|' + id, months)}
    <p>この月：<b>${mi.ninku}</b>人工 ／ 稼働 <b>${mi.wd}</b>日${mi.offWork ? `<small>（うち休みの日に出勤 ${mi.offWork}日）</small>` : ''} ／ 平均 <b>${L.fmt1(mi.value) || '0'}</b>人/日 ${mi.edited ? '<span class="badge">手入力あり</span>' : ''}</p>
-   <div class="tabs"><button data-a="rmode|0" class="${mode === 0 ? 'on' : ''}">1日ずつ</button><button data-a="rmode|1" class="${mode === 1 ? 'on' : ''}">期間でまとめて</button><button data-a="rmode|2" class="${mode === 2 ? 'on' : ''}">複数えらぶ</button></div>`;
+   <div class="tabs"><button data-a="rmode|0" class="${mode === 0 ? 'on' : ''}">1日ずつ</button><button data-a="rmode|1" class="${mode === 1 ? 'on' : ''}">期間でまとめて</button><button data-a="rmode|2" class="${mode === 2 ? 'on' : ''}">複数えらぶ</button></div><div class="daylayout"><div class="daycal">`;
   h += calCells(ym, d => {
     const sd = L.siteDay(doc, s, d), v = arr[Number(d.slice(8)) - 1] || 0;
     const cls = ['d', sd.work ? '' : 'off', !sd.work && v ? 'offwork' : '', ui.sel === d && mode === 0 ? 'sel' : '', mode === 1 && inR(d) ? 'inr' : '', mode === 2 && ui.ms.includes(d) ? 'msel' : '', sd.override || sd.week ? 'ovr' : ''].join(' ');
     return `<div class="${cls}" data-a="dtap|${d}"><span class="n">${Number(d.slice(8))}</span><span class="v">${v || ''}</span><span class="r">${sd.work ? (sd.week ? esc(sd.reason) : '') : esc(sd.reason)}</span></div>`;
   });
-  h += `<div class="legend"><span><i style="background:var(--off)"></i>休み（日曜・祝日・会社/現場の休み）</span><span><i style="background:#ffe0b2;border:1px solid #e69500"></i>休みの日に出勤</span>${mode === 2 ? '<span><i style="background:#cfe3ff;outline:2px solid var(--blue)"></i>選んだ日</span>' : ''}</div>`;
+  h += `<div class="legend"><span><i style="background:var(--off)"></i>休み（日曜・祝日・会社/現場の休み）</span><span><i style="background:#ffe0b2;border:1px solid #e69500"></i>休みの日に出勤</span>${mode === 2 ? '<span><i style="background:#cfe3ff;outline:2px solid var(--blue)"></i>選んだ日</span>' : ''}</div></div>`;
   if (mode === 0 && ui.sel) {
     const sd = L.siteDay(doc, s, ui.sel), v = arr[Number(ui.sel.slice(8)) - 1] || 0;
     h += `<div class="panel"><div class="center"><b>${Number(ui.sel.slice(5, 7))}月${Number(ui.sel.slice(8))}日（${WD[L.dow(ui.sel)]}）</b> ${sd.work ? '' : `<span class="muted">休み：${esc(sd.reason)}</span><br><small class="muted">休みの日でも入れられます（入れた日は稼働日に数えます）</small>`}</div>
@@ -278,6 +285,7 @@ function vDay(id, ym) {
       ${n ? `<div class="applybar"><div class="big flex" style="justify-content:center"><button data-a="mstepv|-1" style="flex:none;width:64px">−</button><input id="mv" type="number" inputmode="numeric" value="${ui.mv ?? 3}" style="flex:none;width:90px;text-align:center;font-size:24px"><button data-a="mstepv|1" style="flex:none;width:64px">＋</button><span style="flex:none">人</span></div>
       <button class="primary wide" data-a="mfill|${id}">選んだ ${n}日を <span id="mvl">${ui.mv ?? 3}</span>人にする</button></div>` : ''}</div>`;
   } else h += '<p class="muted center">日にちをタップすると人数を変えられます（日曜・祝日など休みの日も入れられます）</p>';
+  h += '</div>';
   return h;
 }
 handlers.dmon = (id, ym) => { if (ym) { ui.sel = null; location.hash = `day/${id}/${ym}`; } };
@@ -336,8 +344,14 @@ function vGrid() {
 handlers.gfy = fy => { ui.gridFY = Number(fy); render(); };
 
 // ---------- 集計 ----------
-function barChart(labels, series, { target, unit = '', w = Math.max(340, Math.min(860, document.documentElement.clientWidth - 24)) } = {}) {
-  const H = 240, pl = 40, pr = 8, pt = 18, pb = 28, n = labels.length;
+function chartAvail() {
+  const main = $('#main');
+  if (!main) return Math.max(340, document.documentElement.clientWidth - 24);
+  const cs = getComputedStyle(main);
+  return Math.max(340, Math.round(main.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
+}
+function barChart(labels, series, { target, unit = '', w = chartAvail() } = {}) {
+  const H = window.innerWidth >= 900 ? 300 : 240, pl = 40, pr = 8, pt = 18, pb = 28, n = labels.length;
   const max = Math.max(1, target || 0, ...series.flatMap(s => s.values)) * 1.12;
   const bw = (w - pl - pr) / n, gw = bw * 0.8 / series.length;
   let g = `<svg class="chart" viewBox="0 0 ${w} ${H}" role="img">`;
@@ -357,8 +371,8 @@ function selGroups() { try { const a = JSON.parse(localStorage.getItem(KEY.group
 const OPTG = () => ({ ...OPT(), groups: selGroups() });
 function sumPeriod() { const p = localStorage.getItem(KEY.period); return ['1', '3', '5'].includes(p) ? p : '5'; }
 function stackedChart(months, data, { targets = [] } = {}) {
-  const n = months.length, avail = Math.max(320, document.documentElement.clientWidth - 26);
-  const pl = 34, pr = 10, pt = 26, pb = 34, H = 300;
+  const n = months.length, avail = chartAvail();
+  const pl = 34, pr = 10, pt = 26, pb = 34, H = window.innerWidth >= 900 ? 380 : 300;
   const bw = n <= 12 ? (avail - pl - pr) / n : 26, W = Math.max(avail, pl + pr + bw * n);
   const max = Math.max(1, ...data.total, ...targets.map(t => t.value)) * 1.15;
   const Y = v => pt + (H - pt - pb) * (1 - v / max);
@@ -391,7 +405,7 @@ handlers.pstart = fy => { localStorage.setItem(KEY.pstart, fy); render(); };
 function vSum() {
   const doc = D(); const s = doc.settings, sel = selGroups();
   let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと（通期）</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと（${s.dailyFY}年度）</button></div>
-    <p class="muted small" style="margin:4px 0">見たい組をチェック（このスマホに記憶）</p>${groupPicker()}${doneToggle()}`;
+    <p class="muted small" style="margin:4px 0">見たい組をチェック（この端末に記憶）</p>${groupPicker()}${doneToggle()}`;
   if (!sel.length) return h + '<p class="card center">上のチェックを1つ以上オンにしてください</p>';
   if (ui.sumMode === 'month') {
     const per = sumPeriod(), years = Number(per), last = s.firstFY + s.years - 1;
@@ -503,11 +517,11 @@ function vSettings() {
   const priceCard = `<div class="card"><h3 style="margin-top:0">単価（売上見込み用・円/人工）</h3>
    ${Object.entries(L.TRADES).map(([t, n]) => { const p = L.cleanPrice(up[t]); return `<div class="row"><div class="lbl">${n}</div><div class="info">${p ? `<b style="font-size:20px;color:#222">${L.yen(p)}</b> 円/人工` : '<span class="warn">未設定</span>'}</div><button data-a="price|${t}">${p ? '変える' : '入れる'}</button>${p ? `<button data-a="priceClr|${t}">消す</button>` : ''}</div>`; }).join('')}
    <p class="muted small">売上見込み＝人工×単価。集計・現場の画面・CSVに出ます。現場ごとに違う単価は、その現場の「現場の情報を直す」で入れられます。</p></div>`;
-  return `<h2>設定</h2>${priceCard}<div class="card"><label class="f">あなたの名前（保存の記録に残ります）</label><input type="text" id="who" value="${esc(localStorage.getItem(KEY.who) || '')}"><button class="wide" data-a="who">名前を保存</button></div>
+  return `<h2>設定</h2><div class="setgrid">${priceCard}<div class="card"><label class="f">あなたの名前（保存の記録に残ります）</label><input type="text" id="who" value="${esc(localStorage.getItem(KEY.who) || '')}"><button class="wide" data-a="who">名前を保存</button></div>
    <div class="card"><p>最終更新：${esc(doc.updatedAt ? new Date(doc.updatedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '－')} ${esc(doc.updatedBy || '')}</p>
    <button class="wide" data-a="reload">最新を読み込む</button><button class="wide" data-a="savenow">今すぐ保存</button></div>
    <div class="card"><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ 日別CSV</button></div>
-   <div class="card"><p class="muted small">このスマホに覚えた合言葉を消します（共用スマホ・機種変更のとき）。</p><button class="danger wide" data-a="lock">合言葉を忘れる</button></div>
+   <div class="card"><p class="muted small">この端末に覚えた合言葉を消します（共用の端末・機種変更のとき）。</p><button class="danger wide" data-a="lock">合言葉を忘れる</button></div></div>
    <p class="muted small">データ元：${esc(doc.source || '')}</p>`;
 }
 handlers.price = t => numberSheet({ title: `${L.TRADES[t]}の単価（円/人工）`, value: L.cleanPrice(D().settings.unitPrice?.[t]) || '', step: 1000, info: '1人工あたりの金額（税抜・税込は社内の決まりに合わせてください）', onOk: v => { if (!L.cleanPrice(v)) { alert('1円以上の数字を入れてください'); return; } op({ t: 'price', trade: t, v }); } });
@@ -527,6 +541,8 @@ function numberSheet({ title, value, step = 1, decimals = false, info = '', onOk
   $('#nsp').onclick = () => { inp.value = L.round2((Number(inp.value) || 0) + step); };
   $('#nsc').onclick = close; el.onclick = e => { if (e.target === el) close(); };
   $('#nso').onclick = () => { const v = Number(inp.value); close(); if (!isNaN(v)) { ui.keepScroll = true; onOk(v); } };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#nso').click(); } if (e.key === 'Escape') close(); };
+  setTimeout(() => { inp.focus(); inp.select(); }, 0);
 }
 
 boot().catch(e => fatal('エラー：' + e.message));
