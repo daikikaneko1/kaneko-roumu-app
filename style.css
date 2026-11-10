@@ -64,3 +64,15 @@ button.toggle{text-align:left;margin:4px 0 8px}button.toggle.on{background:#e8f0
 .gpick button i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}.gpick button[data-a=gall]{grid-column:1/3;text-align:center}
 .chart-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:10px}
 table.grid .fyb{border-left:2px solid #555}i.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.cal .d.offwork{background:#ffe0b2;border-color:#e69500}.cal .d.offwork .v{color:#8a4a10}
+.cal .d.msel{background:#cfe3ff;outline:3px solid var(--blue);outline-offset:-2px}
+.panel.multi{position:static;box-shadow:none}
+.panel.multi .applybar{position:sticky;bottom:66px;background:#fff;padding:4px 0;border-top:1px solid var(--line)}
+.wkpick{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:6px 0}.wkpick button{min-height:48px;padding:0;font-weight:700}
+.wkpick button.sun{color:#c62828}.wkpick button.sat{color:#1565c0}.wkpick button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.qk button{min-height:44px;padding:4px 6px;font-size:15px}.prd select{min-height:44px}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.week button{min-height:58px;padding:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2}
+.week button small{font-size:10px;color:#666}.week button.off{background:var(--off);border-color:#999}.week button.off small{color:#c62828;font-weight:700}
+.week button.work{background:#ffe0b2;border-color:#e69500}.week button.work small{color:#8a4a10;font-weight:700}
+.warn{color:#b45309}.card.warn{background:#fff8e6;border-color:#f0c36d}
+.card.sales b.yen{display:block;font-size:24px;color:#1f4e79}.fytot{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:14px;margin-top:6px}
