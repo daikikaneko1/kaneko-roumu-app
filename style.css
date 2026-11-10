@@ -109,3 +109,50 @@ button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{backg
 .kpis{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.kpis>div{flex:1 1 30%;min-width:100px;background:#f7f5fb;border-radius:10px;padding:8px;text-align:center;display:flex;flex-direction:column}
 .kpis b{font-size:22px}.kpis b.mark{font-size:30px;color:#5b3a8e}.kpis small{color:#666;font-size:12px}
 @media (min-width:900px){.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.sumgrid .card{margin:8px 0}}
+
+/* ---- PC（労務・900px以上）。スマホと出来高の見た目は変えない ---- */
+@media (min-width: 900px) {
+  body:not(.dk) #topwrap { position: sticky; top: 0; z-index: 7; }
+  body:not(.dk) #topwrap header { position: relative; padding: 10px 24px; }
+  body:not(.dk) nav {
+    position: relative; bottom: auto; left: auto; right: auto;
+    border-top: 0; border-bottom: 1px solid var(--line);
+    padding: 0 16px; padding-bottom: 0; justify-content: center; gap: 2px;
+  }
+  body:not(.dk) nav a {
+    flex: 0 1 auto; min-width: 108px; min-height: 52px; padding: 6px 18px;
+    font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  body:not(.dk) nav a span { display: inline; font-size: 18px; }
+  body:not(.dk) main { max-width: 1440px; padding: 20px 28px 48px; }
+  body:not(.dk) button.wide:not(.toggle) { width: auto; min-width: 240px; }
+  body:not(.dk) .sitelist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  body:not(.dk) .sitelist .card { margin: 0; }
+  body:not(.dk) .monthrows { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(6, auto); grid-auto-flow: column; gap: 0 28px; }
+  body:not(.dk) .setgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; align-items: start; }
+  body:not(.dk) .cal { max-width: 880px; gap: 6px; margin: 0 auto; }
+  body:not(.dk) .cal .d { min-height: 72px; padding: 4px 6px; }
+  body:not(.dk) .cal .d .n { font-size: 14px; }
+  body:not(.dk) .cal .d .v { font-size: 24px; }
+  body:not(.dk) table.grid { font-size: 14px; width: 100%; }
+  body:not(.dk) table.grid th, body:not(.dk) table.grid td { min-width: 64px; padding: 6px 8px; }
+  body:not(.dk) table.grid .nm { min-width: 220px; max-width: 280px; }
+  body:not(.dk) .grid-wrap { max-height: calc(100vh - 240px); }
+  body:not(.dk) .panel { bottom: 16px; }
+  body:not(.dk) .panel.multi .applybar { bottom: 16px; }
+  body:not(.dk) .card.sales b.yen { font-size: 28px; }
+  body:not(.dk) .fytot { font-size: 16px; gap: 8px 20px; }
+  #sheet { align-items: center; }
+  #sheet .box { max-width: 440px; border-radius: 16px; margin: 24px auto; box-shadow: 0 8px 32px rgba(0,0,0,.18); }
+}
+@media (min-width: 1100px) {
+  body:not(.dk) .daylayout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+  body:not(.dk) .daylayout .cal { margin: 0; max-width: none; }
+  body:not(.dk) .daylayout .panel { position: sticky; top: 16px; margin-top: 0; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  body:not(.dk) .daylayout .panel.multi .applybar { position: static; border-top: 0; padding: 0; }
+}
+@media (min-width: 1500px) {
+  body:not(.dk) main { max-width: 1680px; }
+  body:not(.dk) .sitelist { grid-template-columns: 1fr 1fr 1fr; }
+  body:not(.dk) .cal .d { min-height: 88px; }
+}
