@@ -5,7 +5,8 @@ import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who' };
+const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone' };
+const OPT = () => ({ includeDone: localStorage.getItem(KEY.showDone) === '1' });
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 let sync = null, saveTimer = null;
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // 日本時間
@@ -100,20 +101,30 @@ function bind() { $('#main').querySelectorAll('[data-a]').forEach(el => { el.onc
 const tradeTabs = () => `<div class="tabs ${ui.trade}">${Object.entries(L.TRADES).map(([k, v]) => `<button data-a="trade|${k}" class="${ui.trade === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
 const fyTabs = (cur, act) => `<div class="tabs">${Array.from({ length: D().settings.years }, (_, i) => D().settings.firstFY + i).map(fy => `<button data-a="${act}|${fy}" class="${cur === fy ? 'on' : ''}">${fy}年度${fy === D().settings.dailyFY ? '<br><small>日別</small>' : ''}</button>`).join('')}</div>`;
 handlers.trade = t => { ui.trade = t; render(); };
+// 「竣工も表示」切替（このスマホに記憶）。竣工＝区分が「竣」の現場だけ（工期では判断しない）
+function doneToggle(trade) {
+  const on = OPT().includeDone, n = D().sites.filter(s => L.isDone(s) && (!trade || s.trade === trade)).length;
+  return `<button class="wide toggle ${on ? 'on' : ''}" data-a="showdone" aria-pressed="${on}">${on ? '☑' : '☐'} 竣工も表示 <small>${on ? `（竣工${n}件を表示・合計に含む）` : `（竣工${n}件を非表示中）`}</small></button>`;
+}
+handlers.showdone = () => { localStorage.setItem(KEY.showDone, OPT().includeDone ? '0' : '1'); render(); };
+const doneBadge = s => (L.isDone(s) ? ' <span class="badge done">竣工</span>' : '');
+handlers.doneSet = id => { const s = site(id); if (!s || !confirm(`「${s.name}」を竣工にしますか？\n（一覧・集計から隠れます。人数のデータは消えません）`)) return; draft = null; op(L.doneOp(s)); };
+handlers.doneUnset = id => { const s = site(id); if (!s) return; const back = s.prevKubun && s.prevKubun !== L.DONE ? s.prevKubun : '現';
+  if (!confirm(`「${s.name}」の竣工を解除して、区分を「${back}」に戻しますか？`)) return; draft = null; op(L.undoneOp(s)); };
 handlers.go = h => { ui.keepScroll = false; if (location.hash === '#' + h) render(); else location.hash = h; };
 const curYm = () => today.slice(0, 7);
 
 // ---------- 現場一覧 ----------
 function vList() {
   const doc = D(); const ym = curYm();
-  let h = `<h2>現場一覧</h2>${tradeTabs()}`;
+  let h = `<h2>現場一覧</h2>${tradeTabs()}${doneToggle(ui.trade)}`;
   for (const cat of L.CATEGORIES) {
-    const list = L.sortedSites(doc, ui.trade).filter(s => s.category === cat);
+    const list = L.sortedSites(doc, ui.trade, OPT()).filter(s => s.category === cat);
     h += `<h3>${cat}（${list.length}件）</h3>`;
     for (const s of list) {
       const mi = L.monthInfo(doc, s, ym);
       h += `<div class="card site" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span>
-        <div><div class="nm">${esc(s.name)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
+        <div><div class="nm">${esc(s.name)}${doneBadge(s)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
         <div class="now">${L.parseYm(ym).m}月<b>${L.fmt1(mi.value) || '0'}</b>人/日</div></div>`;
     }
   }
@@ -126,9 +137,10 @@ function vSite(id) {
   const doc = D(), s = site(id); if (!s) return `<p>現場が見つかりません</p><button data-a="go|list">一覧へ</button>`;
   ui.trade = s.trade;
   let h = `<button data-a="go|list">‹ 一覧</button>
-    <div class="card"><div class="site"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span><div><div class="nm">${esc(s.name)}</div>
+    <div class="card"><div class="site"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span><div><div class="nm">${esc(s.name)}${doneBadge(s)}</div>
     <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
-    <button class="wide" data-a="go|edit/${s.id}">✏️ 現場の情報を直す</button></div>
+    <button class="wide" data-a="go|edit/${s.id}">✏️ 現場の情報を直す</button>
+    ${L.isDone(s) ? `<p class="muted small">この現場は竣工です（一覧・集計では「竣工も表示」をオンにしたときだけ出ます）。</p><button class="wide" data-a="doneUnset|${s.id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${s.id}">🏁 竣工にする</button>`}</div>
     <h3>月別の人数（1日あたり平均）</h3>${fyTabs(ui.fy, 'fy')}`;
   let fyN = 0;
   for (const ym of L.fyMonths(ui.fy)) {
@@ -171,6 +183,7 @@ function vEdit(id) {
    <label class="f">月数</label><input type="number" inputmode="decimal" data-k="months" value="${esc(d.months ?? '')}">
    ${tx('note', 'メモ')}
    <button class="primary wide" data-a="dsave">保存する</button>
+   ${isNew ? '' : (L.isDone(site(id) || {}) ? `<button class="wide" data-a="doneUnset|${id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${id}">🏁 竣工にする</button>`)}
    ${isNew ? '' : '<button class="danger wide" data-a="ddel">この現場を削除</button>'}`;
 }
 function readDraft() { document.querySelectorAll('[data-k]').forEach(i => { draft[i.dataset.k] = i.type === 'number' ? (i.value === '' ? null : Number(i.value)) : i.value.trim(); }); }
@@ -180,9 +193,12 @@ handlers.dsave = () => {
   const isNew = draft._for === 'new'; const id = isNew ? L.newId() : draft.id;
   const f = {}; for (const k of ['trade', 'category', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
   if (isNew) f.order = Math.max(0, ...D().sites.map(s => s.order ?? 0)) + 1;
+  const orig = isNew ? null : site(id);
+  if (f.kubun === L.DONE && (!orig || orig.kubun !== L.DONE)) f.prevKubun = orig ? orig.kubun : '';
+  if (f.kubun !== L.DONE && orig && orig.kubun === L.DONE) f.prevKubun = '';
   draft = null; sync.push({ t: 'site', site: { id, ...f } }); scheduleSave(); location.hash = `site/${id}`;
 };
-handlers.ddel = () => { if (!confirm(`「${draft.name}」を削除しますか？\n（月・日の人数も消えます）`)) return; const id = draft.id; draft = null; sync.push({ t: 'delSite', id }); scheduleSave(); location.hash = 'list'; };
+handlers.ddel = () => { /* 削除 */ if (!confirm(`「${draft.name}」を削除しますか？\n（月・日の人数も消えます）`)) return; const id = draft.id; draft = null; sync.push({ t: 'delSite', id }); scheduleSave(); location.hash = 'list'; };
 
 // ---------- 日別入力 ----------
 function calCells(ym, cell) {
@@ -244,13 +260,13 @@ handlers.rfill = id => { const v = Math.max(0, Math.round(Number($('#rv').value)
 // ---------- 5カ年 ----------
 function vGrid() {
   const doc = D(), months = L.fyMonths(ui.gridFY), daily = ui.gridFY === doc.settings.dailyFY;
-  const sites = L.sortedSites(doc, ui.trade); const tots = months.map(ym => L.monthTotals(doc, ym)[ui.trade]);
-  let h = `<h2>5カ年山積表 <small class="muted">人/日</small></h2>${tradeTabs()}${fyTabs(ui.gridFY, 'gfy')}
+  const sites = L.sortedSites(doc, ui.trade, OPT()); const tots = months.map(ym => L.monthTotals(doc, ym, OPT())[ui.trade]);
+  let h = `<h2>5カ年山積表 <small class="muted">人/日</small></h2>${tradeTabs()}${doneToggle(ui.trade)}${fyTabs(ui.gridFY, 'gfy')}
    <p class="muted small">${daily ? '青い列は日別データから計算した月平均です（数字をタップで変更→日に割り振り）。' : 'マスをタップすると数字を変えられます。'}</p>
    <div class="grid-wrap"><table class="grid"><thead><tr><th class="nm">工事名</th>${months.map(ym => `<th>${L.parseYm(ym).m}月</th>`).join('')}</tr></thead><tbody>`;
   for (const cat of L.CATEGORIES) {
     for (const s of sites.filter(x => x.category === cat)) {
-      h += `<tr><td class="nm" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}" style="min-width:24px;height:24px;font-size:12px">${esc(s.kubun || '－')}</span> ${esc(s.name)}</td>`;
+      h += `<tr><td class="nm" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}" style="min-width:24px;height:24px;font-size:12px">${esc(s.kubun || '－')}</span> ${esc(s.name)}${L.isDone(s) ? '（竣工）' : ''}</td>`;
       for (const ym of months) { const mi = L.monthInfo(doc, s, ym); h += `<td class="c ${mi.daily ? 'd' : ''} ${mi.edited ? 'e' : ''}" data-a="medit|${s.id}|${ym}">${L.fmt1(mi.value)}</td>`; }
       h += '</tr>';
     }
@@ -283,9 +299,9 @@ function barChart(labels, series, { target, unit = '', w = Math.max(340, Math.mi
 }
 function vSum() {
   const doc = D(); const s = doc.settings;
-  let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと（${s.dailyFY}年度）</button></div>`;
+  let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと（${s.dailyFY}年度）</button></div>${doneToggle()}`;
   if (ui.sumMode === 'month') {
-    const months = L.fyMonths(ui.sumFY), tots = months.map(ym => L.monthTotals(doc, ym));
+    const months = L.fyMonths(ui.sumFY), tots = months.map(ym => L.monthTotals(doc, ym, OPT()));
     h += fyTabs(ui.sumFY, 'sfy') + `<div class="tabs"><button data-a="est|calendar" class="${s.estimateMode !== 'fixed' ? 'on' : ''}">稼働予測：カレンダー</button><button data-a="est|fixed" class="${s.estimateMode === 'fixed' ? 'on' : ''}">稼働予測：×22日（Excel方式）</button></div>`;
     for (const t of Object.keys(L.TRADES)) {
       h += `<h3>${L.TRADES[t]}（人/日）</h3>` + barChart(months.map(L.monthLabel), [{ values: tots.map(x => x[t].合計), color: `var(--${t})` }], { target: tots[0][t].target, unit: '人' });
@@ -302,7 +318,7 @@ function vSum() {
       </tbody></table></div><p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×会社の稼働日）。×22日＝Excelと同じく 合計×22（カレンダー画面で月ごとの日数を変更可）。</p>`;
   } else {
     const months = L.fyMonths(s.dailyFY); if (!months.includes(ui.sumYm)) ui.sumYm = months[0];
-    const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d));
+    const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d, OPT()));
     h += monthNav(ui.sumYm, 'symon', months);
     for (const t of Object.keys(L.TRADES)) h += `<h3>${L.TRADES[t]}（人）</h3>` + barChart(dates.map(d => Number(d.slice(8))), [{ values: dt.map(x => x[t]), color: `var(--${t})` }], { target: s.targets?.[t], unit: '人' });
     h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">日</th><th>土工</th><th>鳶工</th><th>合計</th></tr></thead><tbody>
@@ -317,7 +333,7 @@ handlers.sfy = fy => { ui.sumFY = Number(fy); render(); };
 handlers.symon = ym => { if (ym) { ui.sumYm = ym; render(); } };
 handlers.est = m => op({ t: 'settings', patch: { estimateMode: m } });
 handlers.csv = kind => {
-  const doc = D(); const text = kind === 'month' ? L.monthlyCsv(doc) : L.dailyCsv(doc);
+  const doc = D(); const text = kind === 'month' ? L.monthlyCsv(doc, OPT()) : L.dailyCsv(doc, OPT());
   const name = kind === 'month' ? `労務稼働予定_5カ年_${today}.csv` : `労務稼働予定_${doc.settings.dailyFY}年度_日別_${today}.csv`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 };
