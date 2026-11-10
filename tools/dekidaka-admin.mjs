@@ -2,6 +2,7 @@
 // 出来高の鍵・データの管理（管理者のパソコン用）。合言葉・トークン・金額は画面にもログにも出しません。
 //  node tools/dekidaka-admin.mjs keys    <token> <入力用合言葉> <閲覧用合言葉> [--scope N]  … 鍵を作り config.js を更新（作り直すと過去のデータは読めなくなるので注意）
 //  node tools/dekidaka-admin.mjs scope   N                                                    … 入力用の範囲だけ変える（鍵はそのまま）→ config.js をコミット → rekey
+//  node tools/dekidaka-admin.mjs retoken <token> <入力用合言葉> <閲覧用合言葉> [新しい入力用] [新しい閲覧用] … トークンの作り直し・合言葉の変更（鍵とデータはそのまま）
 //  node tools/dekidaka-admin.mjs migrate <excel.json> <閲覧用合言葉> [commit]                 … Excel のデータを初回登録（state.json が無いときだけ）
 //  node tools/dekidaka-admin.mjs rekey   <閲覧用合言葉> [commit]                              … 未取り込みの入力を取り込み、今の範囲で暗号化し直す
 //  node tools/dekidaka-admin.mjs check   <入力用合言葉> <閲覧用合言葉>                         … 復号の確認（件数だけ表示）
@@ -42,6 +43,13 @@ if (cmd === 'keys') {
   const n = Number(a[0]); if (![0, 1, 2].includes(n)) throw new Error('範囲は 0 / 1 / 2');
   writeDk({ ...cfg.dekidaka, inputScope: n });
   console.log(`入力用の範囲を ${n} にしました。config.js をコミットし、rekey で暗号化し直してください。`);
+} else if (cmd === 'retoken') {
+  const [tokF, inF, viewF, newInF, newViewF] = a; const token = read(tokF);
+  if (!/^(github_pat_|ghp_)/.test(token)) throw new Error('トークンの形式が違うようです');
+  const vi = await unlock(cfg, 'view', viewF), ii = await unlock(cfg, 'input', inF);
+  const pin = read(newInF || inF), pview = read(newViewF || viewF); if (pin === pview) throw new Error('入力用と閲覧用は別の合言葉に');
+  writeDk({ ...cfg.dekidaka, bundle: { view: await bundle('view', token, vi.privB64, pview), input: await bundle('input', token, ii.privB64, pin) } });
+  console.log('config.js のトークン／合言葉を更新しました（鍵・データはそのまま）。config.js をコミットしてください。');
 } else if (cmd === 'migrate') {
   const [xf, viewF, commit] = a; const u = await unlock(cfg, 'view', viewF); const st = storeFor(cfg, 'view', u);
   const doc = buildState(JSON.parse(fs.readFileSync(xf, 'utf8')));
