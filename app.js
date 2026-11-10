@@ -5,7 +5,7 @@ import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone' };
+const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone', groups: 'roumu.sumGroups', period: 'roumu.sumPeriod', pstart: 'roumu.sumStart' };
 const OPT = () => ({ includeDone: localStorage.getItem(KEY.showDone) === '1' });
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 let sync = null, saveTimer = null;
@@ -108,6 +108,7 @@ function doneToggle(trade) {
 }
 handlers.showdone = () => { localStorage.setItem(KEY.showDone, OPT().includeDone ? '0' : '1'); render(); };
 const doneBadge = s => (L.isDone(s) ? ' <span class="badge done">竣工</span>' : '');
+const divBadge = s => ` <span class="badge div d${L.divisionOf(s)}">${L.divisionOf(s) === '2' ? '二部' : '一部'}</span>`;
 handlers.doneSet = id => { const s = site(id); if (!s || !confirm(`「${s.name}」を竣工にしますか？\n（一覧・集計から隠れます。人数のデータは消えません）`)) return; draft = null; op(L.doneOp(s)); };
 handlers.doneUnset = id => { const s = site(id); if (!s) return; const back = s.prevKubun && s.prevKubun !== L.DONE ? s.prevKubun : '現';
   if (!confirm(`「${s.name}」の竣工を解除して、区分を「${back}」に戻しますか？`)) return; draft = null; op(L.undoneOp(s)); };
@@ -124,7 +125,7 @@ function vList() {
     for (const s of list) {
       const mi = L.monthInfo(doc, s, ym);
       h += `<div class="card site" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span>
-        <div><div class="nm">${esc(s.name)}${doneBadge(s)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
+        <div><div class="nm">${esc(s.name)}${divBadge(s)}${doneBadge(s)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
         <div class="now">${L.parseYm(ym).m}月<b>${L.fmt1(mi.value) || '0'}</b>人/日</div></div>`;
     }
   }
@@ -137,8 +138,8 @@ function vSite(id) {
   const doc = D(), s = site(id); if (!s) return `<p>現場が見つかりません</p><button data-a="go|list">一覧へ</button>`;
   ui.trade = s.trade;
   let h = `<button data-a="go|list">‹ 一覧</button>
-    <div class="card"><div class="site"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span><div><div class="nm">${esc(s.name)}${doneBadge(s)}</div>
-    <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
+    <div class="card"><div class="site"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span><div><div class="nm">${esc(s.name)}${divBadge(s)}${doneBadge(s)}</div>
+    <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}・${L.DIVISIONS[L.divisionOf(s)]}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
     <button class="wide" data-a="go|edit/${s.id}">✏️ 現場の情報を直す</button>
     ${L.isDone(s) ? `<p class="muted small">この現場は竣工です（一覧・集計では「竣工も表示」をオンにしたときだけ出ます）。</p><button class="wide" data-a="doneUnset|${s.id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${s.id}">🏁 竣工にする</button>`}</div>
     <h3>月別の人数（1日あたり平均）</h3>${fyTabs(ui.fy, 'fy')}`;
@@ -170,12 +171,13 @@ handlers.medit = (id, ym) => { const s = site(id), mi = L.monthInfo(D(), s, ym);
 let draft = null;
 function vEdit(id) {
   const isNew = id === 'new';
-  if (!draft || draft._for !== id) { const s = isNew ? { trade: ui.trade, category: '新築', kubun: '入' } : site(id); if (!s) return '<p>現場が見つかりません</p>'; draft = { ...s, _for: id }; }
+  if (!draft || draft._for !== id) { const s = isNew ? { trade: ui.trade, category: '新築', kubun: '入' } : site(id); if (!s) return '<p>現場が見つかりません</p>'; draft = { ...s, _for: id }; draft.division = L.divisionOf(draft); }
   const d = draft, tx = (k, lbl, ph = '') => `<label class="f">${lbl}</label><input type="text" data-k="${k}" value="${esc(d[k] ?? '')}" placeholder="${ph}">`;
   const chips = (k, opts, labels) => `<div class="chips">${opts.map((o, i) => `<button data-a="dset|${k}|${o}" class="${d[k] === o ? 'on' : ''}">${labels ? labels[i] : o}</button>`).join('')}</div>`;
   return `<button data-a="go|${isNew ? 'list' : 'site/' + id}">‹ 戻る</button><h2>${isNew ? '現場を追加' : '現場の情報'}</h2>
    <label class="f">職種</label>${chips('trade', Object.keys(L.TRADES), Object.values(L.TRADES))}
    <label class="f">新築／改修</label>${chips('category', L.CATEGORIES)}
+   <label class="f">工事部（社内）</label><div class="chips big2">${['1', '2'].map(k => `<button data-a="dset|division|${k}" class="${d.division === k ? 'on' : ''}">${L.DIVISIONS[k]}</button>`).join('')}</div>
    <label class="f">区分</label>${chips('kubun', L.KUBUN)}
    <p class="muted small">入=入場中 現=施工中 指=指名 計=計画 営=営業中（Excelと同じ記号）</p>
    ${tx('name', '工事名（必須）')}${tx('bu', '部', '例：1、特、RN')}${tx('shocho', '所長')}${tx('shokucho', '職長')}
@@ -187,11 +189,11 @@ function vEdit(id) {
    ${isNew ? '' : '<button class="danger wide" data-a="ddel">この現場を削除</button>'}`;
 }
 function readDraft() { document.querySelectorAll('[data-k]').forEach(i => { draft[i.dataset.k] = i.type === 'number' ? (i.value === '' ? null : Number(i.value)) : i.value.trim(); }); }
-handlers.dset = (k, v) => { readDraft(); draft[k] = v; render(); };
+handlers.dset = (k, v) => { readDraft(); draft[k] = v; if (k === 'division') draft._divSet = true; if (k === 'category' && draft._for === 'new' && !draft._divSet) draft.division = v === '改修' ? '2' : '1'; render(); };
 handlers.dsave = () => {
   readDraft(); if (!draft.name) { alert('工事名を入れてください'); return; }
   const isNew = draft._for === 'new'; const id = isNew ? L.newId() : draft.id;
-  const f = {}; for (const k of ['trade', 'category', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
+  const f = {}; for (const k of ['trade', 'category', 'division', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
   if (isNew) f.order = Math.max(0, ...D().sites.map(s => s.order ?? 0)) + 1;
   const orig = isNew ? null : site(id);
   if (f.kubun === L.DONE && (!orig || orig.kubun !== L.DONE)) f.prevKubun = orig ? orig.kubun : '';
@@ -297,35 +299,84 @@ function barChart(labels, series, { target, unit = '', w = Math.max(340, Math.mi
   if (target) { const y = pt + (H - pt - pb) * (1 - target / max); g += `<line x1="${pl}" x2="${w - pr}" y1="${y}" y2="${y}" stroke="#333" stroke-dasharray="6 4"/><text x="${w - pr}" y="${y - 4}" font-size="11" text-anchor="end">目標${target}${unit}</text>`; }
   return g + '</svg>';
 }
+// ---- 集計：グループ選択（鳶工/土工 × 一部/二部）と期間（1年/3カ年/5カ年） ----
+const ALLG = L.GROUPS.map(g => g.key);
+function selGroups() { try { const a = JSON.parse(localStorage.getItem(KEY.groups) || 'null'); if (Array.isArray(a)) return ALLG.filter(k => a.includes(k)); } catch { } return ALLG.slice(); }
+const OPTG = () => ({ ...OPT(), groups: selGroups() });
+function sumPeriod() { const p = localStorage.getItem(KEY.period); return ['1', '3', '5'].includes(p) ? p : '5'; }
+function stackedChart(months, data, { targets = [] } = {}) {
+  const n = months.length, avail = Math.max(320, document.documentElement.clientWidth - 26);
+  const pl = 34, pr = 10, pt = 26, pb = 34, H = 300;
+  const bw = n <= 12 ? (avail - pl - pr) / n : 26, W = Math.max(avail, pl + pr + bw * n);
+  const max = Math.max(1, ...data.total, ...targets.map(t => t.value)) * 1.15;
+  const Y = v => pt + (H - pt - pb) * (1 - v / max);
+  const mag = Math.pow(10, Math.floor(Math.log10(max))), step = max / mag > 5 ? mag : max / mag > 2 ? mag / 2 : mag / 5;
+  let g = `<svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" style="width:${W}px;max-width:none">`;
+  for (let v = 0; v <= max; v += step) g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e3e7ee"/><text x="${pl - 4}" y="${Y(v) + 4}" font-size="11" text-anchor="end" fill="#777">${Math.round(v * 10) / 10}</text>`;
+  months.forEach((ym, i) => {
+    const x = pl + i * bw;
+    if (ym.endsWith('-04')) { g += `<line x1="${x}" x2="${x}" y1="${pt - 18}" y2="${H - pb + 4}" stroke="#555" stroke-dasharray="${i ? '4 3' : '0'}"/><text x="${x + 3}" y="${pt - 8}" font-size="12" font-weight="700" fill="#333">${L.fyOf(ym)}年度</text>`; }
+    let y0 = H - pb;
+    for (const s of data.series) { const v = s.values[i] || 0, hh = (H - pt - pb) * v / max; if (hh > 0) g += `<rect x="${x + bw * 0.12}" y="${y0 - hh}" width="${bw * 0.76}" height="${hh}" fill="${s.color}"><title>${s.label} ${ym} ${L.fmt1(v)}</title></rect>`; y0 -= hh; }
+    g += `<text x="${x + bw / 2}" y="${H - pb + 14}" font-size="11" text-anchor="middle" fill="#444">${L.parseYm(ym).m}</text>`;
+  });
+  const pts = data.total.map((v, i) => `${pl + i * bw + bw / 2},${Y(v)}`).join(' ');
+  g += `<polyline points="${pts}" fill="none" stroke="#222" stroke-width="1.6"/>`;
+  data.total.forEach((v, i) => { const x = pl + i * bw + bw / 2; g += `<circle cx="${x}" cy="${Y(v)}" r="2.5" fill="#222"/>`; if (v) g += `<text x="${x}" y="${Y(v) - 5}" font-size="10" text-anchor="middle" fill="#222">${n <= 12 ? L.fmt1(v) : Math.round(v)}</text>`; });
+  for (const t of targets) g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(t.value)}" y2="${Y(t.value)}" stroke="#c62828" stroke-width="1.4" stroke-dasharray="7 4"/><text x="${pl + 4}" y="${Y(t.value) - 4}" font-size="11" fill="#c62828">${t.label}</text>`;
+  g += `<text x="${pl}" y="${H - 6}" font-size="11" fill="#777">月（人/日・1日あたり平均）</text>`;
+  return `<div class="chart-scroll">${g}</svg></div>`;
+}
+function groupPicker() {
+  const sel = selGroups();
+  return `<div class="gpick">${L.GROUPS.map(g => `<button data-a="gtog|${g.key}" class="${sel.includes(g.key) ? 'on' : ''}" aria-pressed="${sel.includes(g.key)}"><i style="background:${g.color}"></i>${sel.includes(g.key) ? '☑' : '☐'} ${g.label}</button>`).join('')}
+   <button data-a="gall" class="${sel.length === ALLG.length ? 'on' : ''}">全部</button></div>`;
+}
+handlers.gtog = k => { let a = selGroups(); a = a.includes(k) ? a.filter(x => x !== k) : [...a, k]; localStorage.setItem(KEY.groups, JSON.stringify(a)); render(); };
+handlers.gall = () => { localStorage.setItem(KEY.groups, JSON.stringify(selGroups().length === ALLG.length ? [] : ALLG)); render(); };
+handlers.period = p => { localStorage.setItem(KEY.period, p); render(); };
+handlers.pstart = fy => { localStorage.setItem(KEY.pstart, fy); render(); };
 function vSum() {
-  const doc = D(); const s = doc.settings;
-  let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと（${s.dailyFY}年度）</button></div>${doneToggle()}`;
+  const doc = D(); const s = doc.settings, sel = selGroups();
+  let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと（通期）</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと（${s.dailyFY}年度）</button></div>
+    <p class="muted small" style="margin:4px 0">見たい組をチェック（このスマホに記憶）</p>${groupPicker()}${doneToggle()}`;
+  if (!sel.length) return h + '<p class="card center">上のチェックを1つ以上オンにしてください</p>';
   if (ui.sumMode === 'month') {
-    const months = L.fyMonths(ui.sumFY), tots = months.map(ym => L.monthTotals(doc, ym, OPT()));
-    h += fyTabs(ui.sumFY, 'sfy') + `<div class="tabs"><button data-a="est|calendar" class="${s.estimateMode !== 'fixed' ? 'on' : ''}">稼働予測：カレンダー</button><button data-a="est|fixed" class="${s.estimateMode === 'fixed' ? 'on' : ''}">稼働予測：×22日（Excel方式）</button></div>`;
-    for (const t of Object.keys(L.TRADES)) {
-      h += `<h3>${L.TRADES[t]}（人/日）</h3>` + barChart(months.map(L.monthLabel), [{ values: tots.map(x => x[t].合計), color: `var(--${t})` }], { target: tots[0][t].target, unit: '人' });
-    }
-    const row = (lb, f) => `<tr><td class="nm">${lb}</td>${tots.map(x => `<td>${f(x)}</td>`).join('')}</tr>`;
-    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">項目</th>${months.map(ym => `<th>${L.monthLabel(ym)}</th>`).join('')}</tr></thead><tbody>
-      ${row('新築土工計', x => L.fmt1(x.doko.新築) || 0)}${row('改修土工計', x => L.fmt1(x.doko.改修) || 0)}<tr class="tot">${row('土工合計', x => L.fmt1(x.doko.合計) || 0).slice(4)}
-      ${row('土工 月間稼働予測', x => Math.round(x.doko.est))}
-      ${row('新築鳶工計', x => L.fmt1(x.tobi.新築) || 0)}${row('改修鳶工計', x => L.fmt1(x.tobi.改修) || 0)}<tr class="tot">${row('鳶工合計', x => L.fmt1(x.tobi.合計) || 0).slice(4)}
-      ${row('鳶工 月間稼働予測', x => Math.round(x.tobi.est))}
-      ${row('（比較）×22日 土工', x => Math.round(x.doko.estFixed))}${row('（比較）カレンダー 土工', x => Math.round(x.doko.estCalendar))}
-      ${row('（比較）×22日 鳶工', x => Math.round(x.tobi.estFixed))}${row('（比較）カレンダー 鳶工', x => Math.round(x.tobi.estCalendar))}
-      ${row('会社の稼働日数', x => x.companyWd)}${row('×22方式の日数', x => x.fixedDays)}
-      </tbody></table></div><p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×会社の稼働日）。×22日＝Excelと同じく 合計×22（カレンダー画面で月ごとの日数を変更可）。</p>`;
+    const per = sumPeriod(), years = Number(per), last = s.firstFY + s.years - 1;
+    let start = per === '5' ? s.firstFY : per === '1' ? ui.sumFY : Number(localStorage.getItem(KEY.pstart) || s.firstFY);
+    start = Math.min(Math.max(start, s.firstFY), last - years + 1);
+    const months = L.periodMonths(start, years), data = L.groupSeries(doc, months, sel, OPTG());
+    const trades = [...new Set(data.series.map(x => x.trade))];
+    const targets = trades.length === 1 ? [{ value: s.targets?.[trades[0]] || 0, label: `${L.TRADES[trades[0]]}目標 ${s.targets?.[trades[0]] || 0}人` }].filter(t => t.value) : [];
+    h += `<div class="tabs">${[['1', '1年'], ['3', '3カ年'], ['5', '5カ年']].map(([k, v]) => `<button data-a="period|${k}" class="${per === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
+    if (per === '1') h += fyTabs(ui.sumFY, 'sfy');
+    if (per === '3') h += `<div class="tabs">${Array.from({ length: s.years - 2 }, (_, i) => s.firstFY + i).map(fy => `<button data-a="pstart|${fy}" class="${start === fy ? 'on' : ''}">${fy}～${fy + 2}年度</button>`).join('')}</div>`;
+    h += `<h3>山積み ${start}年度${years > 1 ? `～${start + years - 1}年度` : ''}（${data.series.map(x => x.label).join('・')}）</h3>
+      <div class="legend">${data.series.map(x => `<span><i style="background:${x.color}"></i>${x.label}</span>`).join('')}<span><i style="background:#222;height:3px;vertical-align:4px"></i>合計</span>${targets.length ? `<span style="color:#c62828">--- 目標</span>` : ''}</div>
+      ${stackedChart(months, data, { targets })}${years > 1 ? '<p class="muted small">← 横にスクロールできます。縦の点線が年度の区切り（4月）。</p>' : ''}
+      <div class="tabs"><button data-a="est|calendar" class="${s.estimateMode !== 'fixed' ? 'on' : ''}">稼働予測：カレンダー</button><button data-a="est|fixed" class="${s.estimateMode === 'fixed' ? 'on' : ''}">稼働予測：×22日（Excel方式）</button></div>`;
+    const hd = months.map(ym => `<th class="${ym.endsWith('-04') ? 'fyb' : ''}">${years > 1 ? `${String(L.parseYm(ym).y).slice(2)}/` : ''}${L.parseYm(ym).m}月</th>`).join('');
+    const row = (lb, arr, f = v => L.fmt1(v) || 0, cls = '') => `<tr class="${cls}"><td class="nm">${lb}</td>${arr.map((v, i) => `<td class="${months[i].endsWith('-04') ? 'fyb' : ''}">${f(v)}</td>`).join('')}</tr>`;
+    const R = Math.round;
+    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">項目（人/日）</th>${hd}</tr></thead><tbody>
+      ${data.series.map(x => row(`<i class="sw" style="background:${x.color}"></i>${x.label}`, x.values)).join('')}
+      ${row('選択の合計', data.total, undefined, 'tot')}
+      ${row(`月間稼働予測（${s.estimateMode === 'fixed' ? '×22日' : 'カレンダー'}）`, data.est, R, 'tot')}
+      ${row('（比較）×22日', data.estFixed, R)}${row('（比較）カレンダー', data.estCalendar, R)}
+      ${row('会社の稼働日数', data.companyWd, v => v)}${targets.length ? row(`余力（目標${targets[0].value}人−合計）`, data.total.map(v => targets[0].value - v), v => `<span style="color:${v < 0 ? '#c62828' : 'inherit'}">${L.fmt1(v) || 0}</span>`) : ''}
+      </tbody></table></div>
+      <p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×会社の稼働日）。×22日＝Excelと同じく 合計×22。</p>`;
   } else {
     const months = L.fyMonths(s.dailyFY); if (!months.includes(ui.sumYm)) ui.sumYm = months[0];
-    const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d, OPT()));
+    const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d, OPTG()));
+    const trades = Object.keys(L.TRADES).filter(t => sel.some(k => k.startsWith(t)));
     h += monthNav(ui.sumYm, 'symon', months);
-    for (const t of Object.keys(L.TRADES)) h += `<h3>${L.TRADES[t]}（人）</h3>` + barChart(dates.map(d => Number(d.slice(8))), [{ values: dt.map(x => x[t]), color: `var(--${t})` }], { target: s.targets?.[t], unit: '人' });
-    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">日</th><th>土工</th><th>鳶工</th><th>合計</th></tr></thead><tbody>
-      ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td><td>${dt[i].doko || ''}</td><td>${dt[i].tobi || ''}</td><td>${dt[i].doko + dt[i].tobi || ''}</td></tr>`; }).join('')}
-      <tr class="tot"><td class="nm">人工合計</td><td>${dt.reduce((a, x) => a + x.doko, 0)}</td><td>${dt.reduce((a, x) => a + x.tobi, 0)}</td><td>${dt.reduce((a, x) => a + x.doko + x.tobi, 0)}</td></tr></tbody></table></div>`;
+    for (const t of trades) h += `<h3>${L.TRADES[t]}（人）${sel.filter(k => k.startsWith(t)).length === 1 ? '・' + L.GROUPS.find(g => sel.includes(g.key) && g.trade === t).label.split(' ')[1] : ''}</h3>` + barChart(dates.map(d => Number(d.slice(8))), [{ values: dt.map(x => x[t]), color: `var(--${t})` }], { target: s.targets?.[t], unit: '人' });
+    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">日</th>${trades.map(t => `<th>${L.TRADES[t]}</th>`).join('')}<th>合計</th></tr></thead><tbody>
+      ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td>${trades.map(t => `<td>${dt[i][t] || ''}</td>`).join('')}<td>${trades.reduce((a, t) => a + dt[i][t], 0) || ''}</td></tr>`; }).join('')}
+      <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}<td>${dt.reduce((a, x) => a + trades.reduce((b, t) => b + x[t], 0), 0)}</td></tr></tbody></table></div>`;
   }
-  h += `<h3>事務所用（Excelで開けます）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ ${s.dailyFY}年度 日別CSV</button>`;
+  h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ ${s.dailyFY}年度 日別CSV</button>`;
   return h;
 }
 handlers.smode = m => { ui.sumMode = m; render(); };
@@ -333,8 +384,9 @@ handlers.sfy = fy => { ui.sumFY = Number(fy); render(); };
 handlers.symon = ym => { if (ym) { ui.sumYm = ym; render(); } };
 handlers.est = m => op({ t: 'settings', patch: { estimateMode: m } });
 handlers.csv = kind => {
-  const doc = D(); const text = kind === 'month' ? L.monthlyCsv(doc, OPT()) : L.dailyCsv(doc, OPT());
-  const name = kind === 'month' ? `労務稼働予定_5カ年_${today}.csv` : `労務稼働予定_${doc.settings.dailyFY}年度_日別_${today}.csv`;
+  const doc = D(); const o = OPTG(); const text = kind === 'month' ? L.monthlyCsv(doc, o) : L.dailyCsv(doc, o);
+  const tag = o.groups.length === ALLG.length ? '' : '_' + o.groups.map(k => L.GROUPS.find(g => g.key === k).label.replace(' ', '')).join('_');
+  const name = kind === 'month' ? `労務稼働予定_5カ年${tag}_${today}.csv` : `労務稼働予定_${doc.settings.dailyFY}年度_日別${tag}_${today}.csv`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 };
 
