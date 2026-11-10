@@ -76,3 +76,36 @@ table.grid .fyb{border-left:2px solid #555}i.sw{display:inline-block;width:12px;
 .week button.work{background:#ffe0b2;border-color:#e69500}.week button.work small{color:#8a4a10;font-weight:700}
 .warn{color:#b45309}.card.warn{background:#fff8e6;border-color:#f0c36d}
 .card.sales b.yen{display:block;font-size:24px;color:#1f4e79}.fytot{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:14px;margin-top:6px}
+/* ---- 出来高 ---- */
+body.dk header{background:#5b3a8e}
+body.dk main{max-width:1200px}
+#status .role{display:inline-block;font-size:12px;font-weight:700;padding:0 6px;border-radius:8px;background:#fff;color:#5b3a8e;margin-right:4px}
+#status .role.input{color:#2e7d32}
+.warn{color:#c62828;font-weight:700}.neg{color:#c62828}
+label.chk{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:15px}label.chk input{width:22px;height:22px}
+.steps{font-size:14px;color:#666;margin:6px 0 10px}.steps b{color:#5b3a8e}
+button.pick{display:flex;align-items:center;gap:10px;text-align:left;min-height:64px}
+button.pick .no,.site .no{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;border-radius:17px;background:#ede7f6;color:#5b3a8e;font-weight:700;flex:none}
+button.pick .t{flex:1;display:flex;flex-direction:column}button.pick small{color:#666;font-size:13px}.arrow{font-size:26px;color:#999;margin-left:auto}
+.big-name{font-size:22px;font-weight:700}
+button.link{border:0;background:none;color:#1565c0;padding:4px 0;min-height:32px;text-decoration:underline}
+.monthpick{display:flex;gap:6px;margin-top:6px}.monthpick button{flex:1;min-height:44px}#ym{font-size:18px;font-weight:700}
+#amount,#ninku{font-size:24px;font-weight:700;text-align:right}
+.cur{font-size:13px;color:#555;margin-top:4px}
+button.big{min-height:60px;font-size:20px}
+table.kv{border-collapse:collapse;width:100%;margin:8px 0}table.kv th,table.kv td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+table.kv td{text-align:right;font-variant-numeric:tabular-nums}table.kv th{color:#555;font-weight:600;white-space:nowrap}
+table.kv tr.tot th,table.kv tr.tot td{background:#f3eff9;font-weight:700}
+#sheet table.kv td{font-size:18px;font-weight:700}
+#sheet .flex{display:flex;gap:8px}#sheet .flex button{flex:1}
+.card.ok{border-color:#2e7d32;background:#f1f8e9}.card.ok h2{color:#2e7d32}
+.card.sent table.kv{margin:2px 0}.card.sent td,.card.sent th{padding:3px 6px;font-size:14px}
+table.grid.dk td{font-variant-numeric:tabular-nums}table.grid.dk td.l,table.grid.dk th.l{text-align:left;white-space:normal;min-width:120px}
+table.grid.dk tr.click{cursor:pointer}table.grid.dk td.e{background:#e3f2fd}
+table.grid.dk td.good{color:#2e7d32;font-weight:700}table.grid.dk td.mid{color:#ef6c00;font-weight:700}table.grid.dk td.bad{color:#c62828;font-weight:700}
+.tabs.wrap{flex-wrap:wrap}.tabs.wrap button{flex:1 1 auto}
+button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{background:#ede7f6;border-color:#5b3a8e}
+.sumsec h3{margin-top:0}table.kv.sum th:first-child{width:6.5em}
+.kpis{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.kpis>div{flex:1 1 30%;min-width:100px;background:#f7f5fb;border-radius:10px;padding:8px;text-align:center;display:flex;flex-direction:column}
+.kpis b{font-size:22px}.kpis b.mark{font-size:30px;color:#5b3a8e}.kpis small{color:#666;font-size:12px}
+@media (min-width:900px){.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.sumgrid .card{margin:8px 0}}
