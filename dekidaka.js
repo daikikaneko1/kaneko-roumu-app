@@ -8,9 +8,9 @@ import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'dk.pass', role: 'dk.role', who: 'dk.who', sent: 'dk.sent', rm: 'dk.reportMonth', aggAll: 'dk.aggAll' };
+const KEY = { pass: 'dk.pass', role: 'dk.role', who: 'dk.who', sent: 'dk.sent', rm: 'dk.reportMonth', aggAll: 'dk.aggAll', site: 'dk.site', showDone: 'dk.showDone', reqs: 'dk.reqs' };
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-const S = { role: null, scope: 0, store: null, sync: null, doc: null, demo: false, pendingInfo: { n: 0, unreadable: 0 } };
+const S = { role: null, scope: 0, store: null, sync: null, doc: null, demo: false, pendingInfo: { n: 0, unreadable: 0 }, requests: [] };
 const ui = { kid: null, ym: null, blk: null, last: null, edit: null };
 const DK = CONFIG.dekidaka || null;
 
@@ -25,6 +25,21 @@ const isView = () => S.role === 'view';
 const K = id => S.doc.keisho.find(k => k.id === id);
 const activeK = () => S.doc.keisho.filter(k => k.active !== false).sort((a, b) => a.no - b.no);
 const kname = k => k.short || k.name;
+// 現場：選んでいる現場（このスマホに覚える）。無ければ竣工でない最初の現場
+const sites = () => C.sitesOf(S.doc);
+const siteName = id => (C.siteById(S.doc, id) || {}).name || '（現場なし）';
+function curSite() {
+  const ss = sites(); if (!ss.length) return null;
+  const v = ui.site || localStorage.getItem(KEY.site);
+  if (v && ss.some(x => x.id === v)) return v;
+  return (ss.find(x => !x.done) || ss[0]).id;
+}
+const siteK = sid => C.siteKeisho(S.doc, sid);
+function sitebar(sid) {
+  if (!sites().length) return '';
+  const st = C.siteById(S.doc, sid) || {};
+  return `<div class="sitebar"><span class="sn">🏗 <b>${esc(st.name || '')}</b>${st.done ? ' <span class="badge">竣工</span>' : ''}</span>${sites().length > 1 ? '<button class="link" data-a="go|home">現場を変える</button>' : ''}</div>`;
+}
 
 // ---------- 起動・合言葉 ----------
 async function boot() {
@@ -78,7 +93,7 @@ async function open(store, role, scope, demo = false) {
   if (!demo) setInterval(refresh, 90000);
   window.addEventListener('beforeunload', e => { if (S.sync && S.sync.pending.length) { e.preventDefault(); e.returnValue = ''; } });
   document.title = `出来高管理（${C.ROLES[role]}）`;
-  if (!location.hash || location.hash === '#') location.hash = '#input'; else render();
+  if (!location.hash || location.hash === '#') location.hash = '#home'; else render();
 }
 // 閲覧用：全体データ＋未取り込みの入力（取り込んで保存し直す）。入力用：読める範囲だけ・未取り込みは重ねて表示（保存しない）
 async function loadAll() {
@@ -88,12 +103,13 @@ async function loadAll() {
     await S.sync.load();
     const pe = await S.store.pendingEntries(S.sync.base.merged);
     S.pendingInfo = { n: pe.entries.length, unreadable: pe.unreadable };
+    S.requests = pe.requests || [];
     if (pe.entries.length) { S.sync.push({ type: 'merge', entries: pe.entries }); scheduleSave(); }
     S.doc = S.sync.doc;
   } else {
     const { doc } = await S.store.load();
     const pe = await S.store.pendingEntries(doc.merged);
-    S.pendingInfo = { n: pe.entries.length, unreadable: pe.unreadable };
+    S.pendingInfo = { n: pe.entries.length, unreadable: pe.unreadable }; S.requests = pe.requests || [];
     S.doc = C.overlayEntries(doc, pe.entries); S.doc.readable = doc.readable;
   }
   showStatus();
@@ -105,7 +121,8 @@ function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => { try { await S.sync.save(who()); S.doc = S.sync.doc; ui.keepScroll = true; render(); } catch (e) { if (e.auth) alert('保存できません：データの鍵が無効です。管理者に連絡してください。'); } }, 800);
 }
-function op(o) { S.sync.push({ ...o, by: who() }); S.doc = S.sync.doc; scheduleSave(); render(); }
+function op(o) { opMany([o]); }
+function opMany(list) { for (const o of list) S.sync.push({ ...o, by: who(), when: new Date().toISOString() }); S.doc = S.sync.doc; scheduleSave(); render(); }
 const who = () => localStorage.getItem(KEY.who) || '';
 function showStatus() {
   const el = $('#status'); el.className = '';
@@ -119,7 +136,7 @@ function showStatus() {
 
 // ---------- 画面 ----------
 function navItems() {
-  const items = [['input', '✏️', '入力']];
+  const items = [['home', '🏗', '現場'], ['input', '✏️', '入力']];
   if (can('master') || can('claims')) items.push(['list', '📄', '請書']);
   if (can('labor') && can('targets')) items.push(['agg', '📊', '集計'], ['sum', '📋', 'サマリー']);
   items.push(['settings', '⚙️', isView() ? '設定' : 'その他']);
@@ -129,10 +146,10 @@ function buildNav() { const n = $('#nav'); n.innerHTML = navItems().map(([h, i, 
 function render() {
   if (!S.doc) return;
   const [r, a, b] = location.hash.slice(1).split('/').map(decodeURIComponent);
-  const allowed = navItems().map(x => x[0]).concat(['sheet', 'editk', 'editg', 'done']);
-  const route = allowed.includes(r) ? r : 'input';
-  document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('on', x.dataset.nav === ({ sheet: 'list', editk: 'settings', editg: 'settings', done: 'input' }[route] || route)));
-  const f = { input: () => vInput(a, b), done: vDone, list: vList, sheet: () => vSheet(a), agg: vAgg, sum: vSum, settings: vSettings, editk: () => vEditK(a), editg: () => vEditG(a) }[route];
+  const allowed = navItems().map(x => x[0]).concat(['sheet', 'editk', 'editg', 'edits', 'done', 'reqnew', 'req', 'reqdone']);
+  const route = allowed.includes(r) ? r : 'home';
+  document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('on', x.dataset.nav === ({ sheet: 'list', editk: 'list', editg: 'settings', edits: 'home', req: 'home', done: 'input', reqnew: 'input', reqdone: 'input' }[route] || route)));
+  const f = { home: vHome, input: () => vInput(a, b), done: vDone, list: vList, sheet: () => vSheet(a), agg: vAgg, sum: vSum, settings: vSettings, editk: () => vEditK(a), editg: () => vEditG(a), edits: () => vEditS(a), reqnew: vReqNew, req: () => vReq(a), reqdone: vReqDone }[route];
   const y = window.scrollY; $('#main').innerHTML = f(); bind();
   window.scrollTo(0, ui.keepScroll ? y : 0); ui.keepScroll = false; showStatus();
 }
@@ -142,16 +159,60 @@ function bind() {
 }
 H.go = h => { location.hash = '#' + h; };
 
-// ---- 入力（請書 → 締め月 → 請求額・人工・備考 → 保存）----
+// ---- 現場（トップ）：現場カード＋会社合計。竣工は隠す ----
+H.site = id => { ui.site = id; localStorage.setItem(KEY.site, id); location.hash = can('master') || can('claims') ? '#list' : '#input'; };
+H.showDone = () => { localStorage.setItem(KEY.showDone, localStorage.getItem(KEY.showDone) === '1' ? '0' : '1'); ui.keepScroll = true; render(); };
+const blockLine = b => `<div class="bl"><span class="bn">${esc(b.name)}</span><span><b class="${b.target && b.dekidaka != null ? (b.dekidaka >= b.target ? 'good' : b.dekidaka >= b.target * 0.9 ? 'mid' : 'bad') : ''}">${b.dekidaka == null ? '—' : yen(b.dekidaka)}</b> 円/人工</span>${b.target ? `<span>目標差 <b class="${b.diff < 0 ? 'neg' : ''}">${b.diff == null ? '—' : (b.diff > 0 ? '+' : '') + yen(b.diff)}</b></span><span>達成率 <b>${pct(b.achieve)}</b> ${b.eval || ''}</span>` : '<span class="muted">目標なし</span>'}</div>`;
+function vHome() {
+  const all = sites(), showDone = localStorage.getItem(KEY.showDone) === '1', nDone = all.filter(x => x.done).length;
+  const vis = all.filter(x => showDone || !x.done), Cl = can('claims'), L = can('labor') && can('targets');
+  const cards = vis.map(st => {
+    const r = C.siteResult(S.doc, st.id);
+    return `<div class="card site sitecard" data-a="site|${esc(st.id)}"><div style="flex:1;min-width:0">
+      <div class="nm">${esc(st.name)}${st.done ? ' <span class="badge">竣工</span>' : ''}</div>
+      <div class="meta">請書 ${r.count}件${can('master') ? `／請書金額 ${yenOr(r.amount, '未設定')}` : ''}</div>
+      ${Cl ? `<div class="kv2"><span>累計請求 <b>${yen(r.cum)}</b> 円</span>${L ? `<span>累計人工 <b>${num(r.cumNinku, 2)}</b></span>` : ''}</div>` : ''}
+      ${L ? r.secs.filter(b => b.target).map(blockLine).join('') : ''}
+      ${isView() ? `<button class="link" data-a="go|edits/${esc(st.id)}">現場名・竣工を直す</button>` : ''}</div><span class="arrow">›</span></div>`;
+  }).join('');
+  let company = '';
+  if (Cl && vis.length) {
+    const cr = C.companyResult(S.doc, vis.map(x => x.id));
+    company = `<div class="card company"><h3>会社合計<span class="muted small">（${showDone ? '竣工も含む' : '竣工を除く'} ${vis.length}現場）</span></h3>
+      <div class="kv2"><span>累計請求 <b>${yen(cr.cum)}</b> 円</span>${L ? `<span>累計人工 <b>${num(cr.cumNinku, 2)}</b></span>` : ''}</div>
+      ${L ? cr.trades.map(t => blockLine({ name: t.trade + '（目標のある合算・単独）', dekidaka: t.dekidaka, target: t.target, diff: t.diff, achieve: t.achieve, eval: C.evalMark(t.dekidaka, t.target) })).join('') : ''}</div>`;
+  }
+  const reqs = reqCards();
+  return `<h2>現場</h2>${reqs}
+   ${all.length ? '' : `<div class="card warn">${isView() ? '現場がまだありません。「＋ 現場を追加」から作ってください。' : '現場がまだありません。幹部に連絡してください。'}</div>`}
+   <div class="sitegrid">${cards}</div>${company}
+   ${nDone ? `<button class="toggle ${showDone ? 'on' : ''}" data-a="showDone">${showDone ? '☑' : '☐'} 竣工の現場も表示（${nDone}）</button>` : ''}
+   ${isView() ? '<button class="wide" data-a="go|edits/new">＋ 現場を追加</button>' : ''}
+   <p class="muted small">現場を押すと、その現場の請書一覧・入力・集計・サマリーへ。${Cl ? '累計は入力のある全部の月。' : ''}</p>`;
+}
+// 請書追加の申請：閲覧用＝確認待ちの一覧（承認・却下）、入力用＝自分たちの申請の状況
+function reqCards() {
+  if (!can('master')) return '';
+  const pend = S.requests || [];
+  if (isView()) return pend.length ? `<div class="card notice"><h3>請書追加の申請 ${pend.length}件（確認待ち）</h3>${pend.map(q => `<div class="site" data-a="go|req/${esc(q.id)}"><div style="flex:1"><div class="nm">${esc(q.req.name)}</div><div class="meta">${esc(siteName(q.req.siteId))}／${esc(q.req.trade || '')} ${esc(q.req.kubun || '')}／${dt(q.at)} ${esc(q.by || '')}</div></div><span class="arrow">›</span></div>`).join('')}</div>` : '';
+  const done = (S.doc.requests || []).slice(-5).reverse();
+  if (!pend.length && !done.length) return '';
+  return `<div class="card"><h3>請書追加の申請</h3>${pend.map(q => `<div class="meta">⏳ ${esc(q.req.name)}（${esc(siteName(q.req.siteId))}）幹部の確認待ち</div>`).join('')}${done.map(q => `<div class="meta">${q.decision === 'approved' ? '✓ 追加されました' : '✕ 見送り'}：${esc((q.req || {}).name || '')}</div>`).join('')}</div>`;
+}
+
+// ---- 入力（現場 → 請書 → 締め月 → 請求額・人工・備考 → 保存）----
 function defaultYm(k) { const ms = C.keishoMonths(k); const cur = C.closeMonthOf(today, S.doc.settings.cycleDay || 21); return ms.includes(cur) ? cur : cur < ms[0] ? ms[0] : ms[ms.length - 1]; }
 function vInput(kid, ym) {
-  const ks = activeK();
+  const sid = curSite(), ks = sites().length ? siteK(sid) : activeK();
   if (!kid || !K(kid)) {
-    return `<h2>① 請書をえらぶ</h2><div class="steps"><b>①請書</b> → ②締め月 → ③数字 → 保存</div>
+    return `${sitebar(sid)}<h2>① 請書をえらぶ</h2><div class="steps">${sites().length > 1 ? '<a href="#home">現場</a> → ' : ''}<b>①請書</b> → ②締め月 → ③数字 → 保存</div>
+     ${ks.length ? '' : '<p class="muted">この現場には請書がまだありません。</p>'}
      ${ks.map(k => `<button class="wide pick" data-a="go|input/${esc(k.id)}"><span class="no">${esc(k.no)}</span><span class="t"><b>${esc(kname(k))}</b><small>${esc(k.name)}${k.taisho === false ? '・出来高対象外' : ''}</small></span><span class="arrow">›</span></button>`).join('')}
+     ${addKButton(sid)}
      ${sentList(3)}`;
   }
-  const k = K(kid), ms = C.keishoMonths(k), day = S.doc.settings.cycleDay || 21;
+  const k = K(kid); if (sites().length) ui.site = C.siteOfK(S.doc, k);
+  const ms = C.keishoMonths(k), day = S.doc.settings.cycleDay || 21;
   ym = ms.includes(ym) ? ym : defaultYm(k);
   const i = ms.indexOf(ym);
   const cur = { amount: C.val(S.doc, k.id, ym, 'amount'), ninku: C.val(S.doc, k.id, ym, 'ninku'), note: C.val(S.doc, k.id, ym, 'note') };
@@ -160,7 +221,7 @@ function vInput(kid, ym) {
   const pre = f => (isView() && cur[f] != null ? (f === 'amount' ? String(cur[f]) : String(cur[f])) : '');
   const clr = f => (isView() ? `<label class="chk small"><input type="checkbox" id="clr-${f}"> 空にする</label>` : '');
   return `<div class="steps"><a href="#input">①請書</a> → <b>②締め月・③数字</b> → 保存</div>
-   <div class="card"><div class="muted small">請書</div><div class="big-name">${esc(kname(k))}</div><div class="muted small">${esc(k.name)}</div><button class="link" data-a="go|input">請書を変える</button></div>
+   <div class="card">${sites().length ? `<div class="muted small">現場：${esc(siteName(C.siteOfK(S.doc, k)))}</div>` : ''}<div class="muted small">請書</div><div class="big-name">${esc(kname(k))}</div><div class="muted small">${esc(k.name)}</div><button class="link" data-a="go|input">請書を変える</button></div>
    <div class="card"><label class="f">② 締め月</label>
     <select id="ym" data-a="ympick|${esc(k.id)}">${ms.map(m => `<option value="${m}" ${m === ym ? 'selected' : ''}>${C.closeLabel(m, day)}</option>`).join('')}</select>
     <div class="monthpick"><button data-a="go|input/${esc(k.id)}/${ms[i - 1] || ym}" ${i <= 0 ? 'disabled' : ''}>◀ 前の月</button><button data-a="go|input/${esc(k.id)}/${ms[i + 1] || ym}" ${i >= ms.length - 1 ? 'disabled' : ''}>次の月 ▶</button></div></div>
@@ -192,7 +253,8 @@ H.submit = (kid, ym) => {
 };
 function fieldsHtml(k, ym, fields) {
   const row = (l, v) => `<tr><th>${l}</th><td>${v}</td></tr>`;
-  return `<table class="kv">${row('請書', esc(kname(k)))}${row('締め月', C.closeLabel(ym, S.doc.settings.cycleDay || 21))}
+  const sn = k.site ?? (k.id && sites().length ? siteName(C.siteOfK(S.doc, k)) : null);
+  return `<table class="kv">${sn ? row('現場', esc(sn)) : ''}${row('請書', esc(kname(k)))}${row('締め月', C.closeLabel(ym, S.doc.settings.cycleDay || 21))}
    ${'amount' in fields ? row('当月請求額', fields.amount == null ? '空にする' : yen(fields.amount) + ' 円') : ''}
    ${'ninku' in fields ? row('当月投入人工', fields.ninku == null ? '空にする' : num(fields.ninku, 3) + ' 人工') : ''}
    ${'note' in fields ? row('備考', fields.note == null ? '空にする' : esc(fields.note)) : ''}</table>`;
@@ -208,7 +270,7 @@ function confirmSheet(k, ym, fields) {
       const at = new Date().toISOString(), key = C.keyOf(k.id, ym);
       if (isView()) { S.sync.push({ type: 'set', key, fields, by: who() }); S.doc = S.sync.doc; if (!S.demo) await S.sync.save(who()); else scheduleSave(); S.doc = S.sync.doc; }
       else { const e = await S.store.addEntry({ key, fields, by: who(), at }); S.doc = C.overlayEntries(S.doc, [e]); S.doc.readable = C.readableDatasets('input', S.scope); }
-      const rec = { kid: k.id, kname: kname(k), ym, fields, at, by: who(), role: S.role };
+      const rec = { kid: k.id, kname: kname(k), site: sites().length ? siteName(C.siteOfK(S.doc, k)) : null, ym, fields, at, by: who(), role: S.role };
       ui.last = rec; remember(rec); close(); location.hash = '#done';
     } catch (e) { $('#co').disabled = false; $('#cm').textContent = '保存できませんでした。電波を確認してもう一度押してください。（' + e.message + '）'; }
   };
@@ -218,12 +280,12 @@ function remember(rec) { try { const a = JSON.parse(localStorage.getItem(KEY.sen
 const sentAll = () => { try { return JSON.parse(localStorage.getItem(KEY.sent) || '[]'); } catch { return []; } };
 function sentList(max = 30) {
   const a = sentAll().slice(0, max); if (!a.length) return '';
-  return `<h3>このスマホから送った内容</h3>${a.map(r => `<div class="card sent"><div class="muted small">${dt(r.at)} ${esc(r.by || '')}</div>${fieldsHtml({ short: r.kname }, r.ym, r.fields)}</div>`).join('')}
+  return `<h3>このスマホから送った内容</h3>${a.map(r => `<div class="card sent"><div class="muted small">${dt(r.at)} ${esc(r.by || '')}</div>${fieldsHtml({ short: r.kname, site: r.site || null }, r.ym, r.fields)}</div>`).join('')}
    ${max < 30 && sentAll().length > max ? '<a href="#settings">もっと見る</a>' : ''}`;
 }
 function vDone() {
   const r = ui.last; if (!r) return vInput();
-  return `<div class="card ok"><h2>✓ 保存しました</h2><p class="muted small">${dt(r.at)}${r.by ? ' ・ ' + esc(r.by) : ''}</p>${fieldsHtml({ short: r.kname }, r.ym, r.fields)}
+  return `<div class="card ok"><h2>✓ 保存しました</h2><p class="muted small">${dt(r.at)}${r.by ? ' ・ ' + esc(r.by) : ''}</p>${fieldsHtml({ short: r.kname, site: r.site || null }, r.ym, r.fields)}
    ${!isView() ? '<p class="muted small">この内容は、このスマホにだけ控えとして残ります。</p>' : ''}</div>
    <button class="primary wide" data-a="go|input/${esc(r.kid)}/${C.nextMonth(r.ym)}">同じ請書の次の月を入れる</button>
    <button class="wide" data-a="go|input">別の請書を入れる</button>`;
@@ -231,11 +293,19 @@ function vDone() {
 
 // ---- 請書一覧・月次シート ----
 function vList() {
-  const R = reportMonth();
-  const rows = activeK().map(k => { const c = C.cumThrough(S.doc, k, R); const rate = k.amount ? c.amount / k.amount : null;
+  const R = reportMonth(), sid = curSite(), ks = sites().length ? siteK(sid) : activeK();
+  const rows = ks.map(k => { const c = C.cumThrough(S.doc, k, R); const rate = k.amount ? c.amount / k.amount : null;
     return `<tr data-a="go|sheet/${esc(k.id)}" class="click"><td class="nm"><b>${esc(kname(k))}</b><br><small>${esc(k.name)}${k.taisho === false ? '・対象外' : ''}</small></td>${can('master') ? `<td>${yenOr(k.amount)}</td>` : ''}${can('claims') ? `<td>${yen(c.amount)}</td>` : ''}${can('master') && can('claims') ? `<td>${k.amount ? pct(rate) : '—'}</td>` : ''}${can('labor') ? `<td>${num(c.ninku, 1)}</td>` : ''}</tr>`; }).join('');
-  return `<h2>請書</h2><p class="muted small">累計は ${C.ymSlash(R || '')} 分まで（報告月はサマリーで変えられます）。行を押すと月ごとの表。</p>
-   <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">請書</th>${can('master') ? '<th>請書金額</th>' : ''}${can('claims') ? '<th>累計請求</th>' : ''}${can('master') && can('claims') ? '<th>消化率</th>' : ''}${can('labor') ? '<th>累計人工</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const cs = ks.map(k => C.cumThrough(S.doc, k, R)), amt = ks.some(k => k.amount != null) ? ks.reduce((t, k) => t + (k.amount || 0), 0) : null, cum = cs.reduce((t, c) => t + c.amount, 0);
+  const tot = ks.length > 1 ? `<tr class="tot"><td class="nm">現場の合計（${ks.length}件）</td>${can('master') ? `<td>${yenOr(amt)}</td>` : ''}${can('claims') ? `<td>${yen(cum)}</td>` : ''}${can('master') && can('claims') ? '<td></td>' : ''}${can('labor') ? `<td>${num(cs.reduce((t, c) => t + c.ninku, 0), 1)}</td>` : ''}</tr>` : '';
+  return `${sitebar(sid)}<h2>請書一覧</h2><p class="muted small">累計は ${C.ymSlash(R || '')} 分まで（報告月はサマリーで変えられます）。行を押すと月ごとの表。</p>
+   <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">請書</th>${can('master') ? '<th>請書金額</th>' : ''}${can('claims') ? '<th>累計請求</th>' : ''}${can('master') && can('claims') ? '<th>消化率</th>' : ''}${can('labor') ? '<th>累計人工</th>' : ''}</tr></thead><tbody>${rows}${tot}</tbody></table></div>
+   ${addKButton(sid)}`;
+}
+// 請書を足すボタン：閲覧用は直接追加、入力用は「請書追加の申請」（幹部が確認）
+function addKButton(sid) {
+  if (!sites().length) return isView() ? '<button class="wide" data-a="go|editk/new">＋ 請書を追加</button>' : '';
+  return isView() ? `<button class="wide" data-a="go|editk/new">＋ この現場に請書を追加</button>` : `<button class="wide" data-a="go|reqnew">＋ 請書の追加を申請する（幹部が確認）</button>`;
 }
 function vSheet(id) {
   const k = K(id); if (!k) return vList();
@@ -243,19 +313,19 @@ function vSheet(id) {
   const last = Math.max(...ser.map((r, i) => (r.amount != null || r.ninku != null || r.note ? i : -1)), -1);
   const show = localStorage.getItem(KEY.aggAll) === '1' ? ser : ser.slice(0, Math.max(last + 2, 1));
   const src = (f, ym) => { const r = S.doc.records[C.keyOf(k.id, ym)]; return r && r[f] && r[f].src === 'entry' ? ' e' : ''; };
-  return `<h2>${esc(kname(k))}</h2><p class="muted small">${esc(k.name)}／請書金額 ${yenOr(k.amount)}${k.start ? '／契約 ' + esc(k.start) + '〜' + esc(k.end || '') : ''}</p>
+  return `${sites().length ? sitebar(C.siteOfK(S.doc, k)) : ''}<h2>${esc(kname(k))}</h2><p class="muted small">${esc(k.name)}／請書金額 ${yenOr(k.amount)}${k.start ? '／契約 ' + esc(k.start) + '〜' + esc(k.end || '') : ''}</p>
    ${allToggle()}
    <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">締め月</th><th>当月請求額</th>${L ? '<th>当月人工</th>' : ''}<th>累計請求額</th>${L ? '<th>累計人工</th><th class="l">備考</th>' : ''}</tr></thead><tbody>
    ${show.map(r => `<tr ${isView() ? `data-a="go|input/${esc(k.id)}/${r.ym}" class="click"` : ''}><td class="nm">${C.ymSlash(r.ym)}</td><td class="${r.amount < 0 ? 'neg' : ''}${src('amount', r.ym)}">${yen(r.amount)}</td>${L ? `<td class="${src('ninku', r.ym)}">${num(r.ninku, 3)}</td>` : ''}<td>${yen(r.cumAmount)}</td>${L ? `<td>${num(r.cumNinku, 2)}</td><td class="l">${esc(r.note || '')}</td>` : ''}</tr>`).join('')}
    <tr class="tot"><td class="nm">合計</td><td>${yen(ser.reduce((s, r) => s + (r.amount || 0), 0))}</td>${L ? `<td>${num(ser.reduce((s, r) => s + (r.ninku || 0), 0), 3)}</td>` : ''}<td></td>${L ? '<td></td><td></td>' : ''}</tr></tbody></table></div>
-   ${isView() ? '<p class="muted small">行を押すとその月を直せます。水色＝入力用から届いた値。</p>' : ''}`;
+   ${isView() ? `<p class="muted small">行を押すとその月を直せます。水色＝入力用から届いた値。</p><button class="wide" data-a="go|editk/${esc(k.id)}">この請書（名前・金額・期間）を直す</button>` : ''}`;
 }
 const allToggle = () => { const on = localStorage.getItem(KEY.aggAll) === '1'; return `<button class="toggle ${on ? 'on' : ''}" data-a="aggall">${on ? '☑' : '☐'} 先の空の月も表示</button>`; };
 H.aggall = () => { localStorage.setItem(KEY.aggAll, localStorage.getItem(KEY.aggAll) === '1' ? '0' : '1'); ui.keepScroll = true; render(); };
 
 // ---- 出来高集計（Excel「出来高集計」）----
 function vAgg() {
-  const bl = C.blocks(S.doc); if (!bl.length) return '<p>出来高対象の請書がありません。</p>';
+  const sid = curSite(), bl = C.blocks(S.doc, sid); if (!bl.length) return sitebar(sid) + '<p>この現場には出来高対象の請書がありません。</p>';
   const b = bl.find(x => x.id === ui.blk) || bl[0]; ui.blk = b.id;
   const p = S.doc.settings.period || {}; const months = C.monthsBetween(p.from || b.members[0].from, p.to || b.members[0].to);
   const s = C.groupSeries(S.doc, b.members, b.target, months);
@@ -266,7 +336,7 @@ function vAgg() {
   const cls = v => (T && v != null ? (v >= T ? 'good' : v >= T * 0.9 ? 'mid' : 'bad') : '');
   const tr = r => `<tr><td class="nm">${C.ymSlash(r.ym)}</td>${multi ? r.per.map(x => `<td class="${x.amount < 0 ? 'neg' : ''}">${yen(x.amount)}</td><td>${num(x.ninku, 2)}</td>`).join('') : ''}<td class="${r.G < 0 ? 'neg' : ''}">${yen(r.G)}</td><td>${num(r.H, 2)}</td><td class="${cls(r.I)}">${yen(r.I)}</td>${T ? `<td class="${r.J < 0 ? 'neg' : ''}">${yen(r.J)}</td><td>${r.K == null ? '' : pct(r.K)}</td>` : ''}<td>${yen(r.L)}</td><td>${num(r.M, 2)}</td><td class="${cls(r.N)}">${yen(r.N)}</td></tr>`;
   const tot = `<tr class="tot"><td class="nm">合計</td>${multi ? s.tot.per.map(x => `<td>${yen(x.amount)}</td><td>${num(x.ninku, 2)}</td>`).join('') : ''}<td>${yen(s.tot.G)}</td><td>${num(s.tot.H, 2)}</td><td class="${cls(s.tot.I)}">${yen(s.tot.I)}</td>${T ? '<td></td><td></td>' : ''}<td></td><td></td><td></td></tr>`;
-  return `<h2>出来高集計</h2><div class="tabs wrap">${bl.map(x => `<button data-a="blk|${x.id}" class="${x.id === b.id ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>
+  return `${sitebar(sid)}<h2>出来高集計</h2><div class="tabs wrap">${bl.map(x => `<button data-a="blk|${x.id}" class="${x.id === b.id ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>
    <p class="muted small">${multi ? esc(b.members.map(kname).join('＋')) + ' の合算' : '単独で出来高管理'}${T ? `／目標 ${yen(T)} 円/人工` : '／目標なし'}。出来高＝請求÷人工（人工0の月は空欄）。</p>
    ${allToggle()}<div class="grid-wrap"><table class="grid dk"><thead>${head}</thead><tbody>${rows.map(tr).join('')}${tot}</tbody></table></div>
    <button class="wide" data-a="csv|month">⬇ 月次CSV</button>`;
@@ -277,7 +347,7 @@ H.blk = id => { ui.blk = id; ui.keepScroll = true; render(); };
 function dataMonths() { const s = new Set(); for (const [key, r] of Object.entries(S.doc.records)) if ((r.amount && r.amount.v != null) || (r.ninku && r.ninku.v != null)) s.add(key.split('|')[1]); return [...s].sort(); }
 function reportMonth() { const ms = dataMonths(), saved = localStorage.getItem(KEY.rm); return saved && ms.includes(saved) ? saved : C.latestDataMonth(S.doc); }
 function vSum() {
-  const R = reportMonth(), sm = C.summary(S.doc, R), ms = dataMonths();
+  const R = reportMonth(), sid = sites().length ? curSite() : null, sm = C.summary(S.doc, R, sid), ms = dataMonths();
   const sec = b => {
     const multi = b.members.length > 1, cols = multi ? [...b.items, null] : b.items;
     const cell = (i, f) => (i ? f(i) : '');
@@ -290,7 +360,7 @@ function vSum() {
      ${row('累計人工', i => num(i.cumNinku, 1), () => num(b.cumNinku, 1))}
      </table>
      <div class="kpis"><div><small>${multi ? '合算' : ''}出来高</small><b>${b.dekidaka == null ? '—' : yen(b.dekidaka)}</b><small>円/人工</small></div>
-      ${b.target ? `<div><small>目標との差</small><b class="${b.diff < 0 ? 'neg' : ''}">${b.diff == null ? '—' : (b.diff > 0 ? '+' : '') + yen(b.diff)}</b><small>達成率 ${b.dekidaka == null ? '—' : pct(b.dekidaka / b.target)}</small></div><div><small>評価</small><b class="mark">${b.eval || '—'}</b><small>◎目標以上 ○9割以上 △</small></div>` : ''}</div></div>`;
+      ${b.target ? `<div><small>目標との差${b.type === 'group' && b.g && b.g.common || b.type === 'single' && b.members[0].common ? '（共通単価）' : ''}</small><b class="${b.diff < 0 ? 'neg' : ''}">${b.diff == null ? '—' : (b.diff > 0 ? '+' : '') + yen(b.diff)}</b><small>達成率 ${b.dekidaka == null ? '—' : pct(b.dekidaka / b.target)}</small></div><div><small>評価</small><b class="mark">${b.eval || '—'}</b><small>◎目標以上 ○9割以上 △</small></div>` : ''}</div></div>`;
   };
   const t = sm.totals;
   const totals = `<div class="card"><h3>総請求額集計</h3><table class="kv sum"><tr><th>区分</th><th>累計請求額</th><th>構成比</th></tr>
@@ -299,7 +369,7 @@ function vSum() {
   const n = S.doc.notes || {};
   const notes = can('notes') ? `<div class="card"><h3>総括コメント</h3>${isView() ? `<textarea id="comment" rows="4">${esc(n.comment || '')}</textarea><button class="wide" data-a="comment">コメントを保存</button>` : `<p>${esc(n.comment || '（なし）')}</p>`}
     ${(n.meeting || []).length ? `<h3>打ち合わせメモ（Excelから）</h3><ul>${n.meeting.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}</div>` : '';
-  return `<h2>出来高会議サマリー</h2>
+  return `${sitebar(sid)}<h2>出来高会議サマリー</h2>
    <div class="card"><label class="f">報告月</label><select data-a="rm">${ms.map(m => `<option value="${m}" ${m === R ? 'selected' : ''}>${C.ymSlash(m)}${m === C.latestDataMonth(S.doc) ? '（最新）' : ''}</option>`).join('')}</select>
    <p class="muted small">締め：${esc(S.doc.settings.cycle || '21日～翌20日')}。累計は報告月の分まで。${S.doc.settings.excelReportMonth ? `Excel の報告月の欄は ${C.ymSlash(S.doc.settings.excelReportMonth)} のまま（Excel の累計は全期間）。` : ''}</p></div>
    <div class="sumgrid">${sm.secs.map(sec).join('')}</div>${totals}${notes}
@@ -316,30 +386,40 @@ function vSettings() {
     <label class="f">あなたの名前（入力の記録に残ります）</label><input type="text" id="whoS" value="${esc(who())}"><button class="wide" data-a="whoSave">名前を保存</button>
     <button class="wide" data-a="reload">最新を読み込む</button></div>`;
   const csv = (can('claims') ? '<button class="wide" data-a="csv|month">⬇ 月次CSV（請書×締め月）</button>' : '') + (can('labor') && can('targets') ? '<button class="wide" data-a="csv|sum">⬇ 会議サマリーCSV</button>' : '');
-  const master = isView() ? `<h3>請書マスタ</h3>${activeK().concat(d.keisho.filter(k => k.active === false)).map(k => `<div class="card site" data-a="go|editk/${esc(k.id)}"><span class="no">${esc(k.no)}</span><div style="flex:1"><div class="nm">${esc(kname(k))}${k.active === false ? ' <span class="badge">使わない</span>' : ''}</div><div class="meta">${esc(k.name)}／${yenOr(k.amount)}／${k.taisho === false ? '出来高対象外' : k.group ? esc((d.groups.find(g => g.id === k.group) || {}).name || '') + 'で合算' : '単独管理'}</div></div><span class="arrow">›</span></div>`).join('')}
+  const cm = d.common || {};
+  const master = isView() ? `<h3>共通の目標単価（全現場）</h3><div class="card"><p class="muted small">合算グループ・請書で「共通の目標単価」にしたものは、ここの単価で目標差・達成率を出します。</p>
+    <label class="f">鳶（円/人工）</label><input type="text" inputmode="numeric" id="cmTobi" value="${cm['鳶'] ?? ''}">
+    <label class="f">土工（円/人工）</label><input type="text" inputmode="numeric" id="cmDoko" value="${cm['土工'] ?? ''}">
+    <button class="wide" data-a="saveCommon">共通の目標単価を保存</button></div>
+    <h3>現場</h3>${sites().map(st => `<div class="card site" data-a="go|edits/${esc(st.id)}"><div style="flex:1"><div class="nm">${esc(st.name)}${st.done ? ' <span class="badge">竣工</span>' : ''}</div><div class="meta">請書 ${siteK(st.id).length}件${(st.roumuIds || []).length ? '／労務の現場 ' + esc(st.roumuIds.join('・')) : ''}</div></div><span class="arrow">›</span></div>`).join('')}
+    <button class="wide" data-a="go|edits/new">＋ 現場を追加</button>
+    <h3>請書マスタ（全現場）</h3>${activeK().concat(d.keisho.filter(k => k.active === false)).map(k => `<div class="card site" data-a="go|editk/${esc(k.id)}"><span class="no">${esc(k.no)}</span><div style="flex:1"><div class="nm">${esc(kname(k))}${k.active === false ? ' <span class="badge">使わない</span>' : ''}</div><div class="meta">${sites().length ? esc(siteName(C.siteOfK(d, k))) + '／' : ''}${esc(k.name)}／${yenOr(k.amount)}／${k.taisho === false ? '出来高対象外' : k.group ? esc((d.groups.find(g => g.id === k.group) || {}).name || '') + 'で合算' : '単独管理'}</div></div><span class="arrow">›</span></div>`).join('')}
     <button class="wide" data-a="go|editk/new">＋ 請書を追加</button>
-    <h3>合算グループ・目標単価</h3>${d.groups.map(g => `<div class="card site" data-a="go|editg/${esc(g.id)}"><div style="flex:1"><div class="nm">${esc(g.name)}</div><div class="meta">目標 ${yenOr(g.target, '目標なし')} 円/人工／${esc(C.groupMembers(d, g.id).map(kname).join('＋') || '請書なし')}</div></div><span class="arrow">›</span></div>`).join('')}
+    <h3>合算グループ・目標単価</h3>${d.groups.map(g => `<div class="card site" data-a="go|editg/${esc(g.id)}"><div style="flex:1"><div class="nm">${esc(g.name)}</div><div class="meta">${sites().length ? esc(siteName(C.siteOfG(d, g))) + '／' : ''}目標 ${g.common ? '共通単価' : yenOr(g.target, '目標なし') + ' 円/人工'}／${esc(C.groupMembers(d, g.id).map(kname).join('＋') || '請書なし')}</div></div><span class="arrow">›</span></div>`).join('')}
     <button class="wide" data-a="go|editg/new">＋ グループを追加</button>` : '';
   return `<h2>${isView() ? '設定' : 'その他'}</h2>${info}${csv ? `<div class="card">${csv}</div>` : ''}${master}
    ${!isView() ? sentList() + (sentAll().length ? '<button class="wide" data-a="sentClr">このスマホの控えを消す</button>' : '') : ''}
    <div class="card"><p class="muted small">このスマホに覚えた出来高の合言葉を消します（共用スマホ・機種変更のとき）。</p><button class="danger wide" data-a="lock">合言葉を忘れる</button></div>
    <p class="muted small"><a href="./">労務稼働予定へ</a></p>`;
 }
+H.saveCommon = () => {
+  const t = $('#cmTobi').value.trim(), d = $('#cmDoko').value.trim(); const a = t === '' ? null : parseAmount(t), b = d === '' ? null : parseAmount(d);
+  if (Number.isNaN(a) || Number.isNaN(b)) return alert('単価は数字で入れてください'); op({ type: 'common', patch: { '鳶': a, '土工': b } }); alert('保存しました');
+};
 H.whoSave = () => { localStorage.setItem(KEY.who, $('#whoS').value.trim()); alert('保存しました'); };
 H.reload = async () => { try { await loadAll(); render(); } catch (e) { alert(e.message); } };
 H.sentClr = () => { if (confirm('このスマホに残っている控えを消しますか？')) { localStorage.removeItem(KEY.sent); render(); } };
 H.lock = () => { if (!confirm('出来高の合言葉を消しますか？次に開くとき入れ直しが必要です。')) return; localStorage.removeItem(KEY.pass); localStorage.removeItem(KEY.role); localStorage.removeItem(KEY.sent); location.hash = ''; location.reload(); };
 H.csv = kind => {
-  const R = reportMonth(); const text = kind === 'sum' ? C.csvSummary(S.doc, R) : C.csvMonthly(S.doc);
+  const R = reportMonth(); const text = kind === 'sum' ? C.csvSummary(S.doc, R, sites().length ? curSite() : null) : C.csvMonthly(S.doc);
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = kind === 'sum' ? `出来高サマリー_${R}.csv` : `出来高_月次_${today}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
-function vEditK(id) {
-  if (!isView()) return vInput();
-  const d = S.doc, isNew = id === 'new';
-  const k = isNew ? { id: '', no: Math.max(0, ...d.keisho.map(x => x.no || 0)) + 1, name: '', short: '', trade: '鳶', kubun: '', amount: null, start: '', end: '', from: C.closeMonthOf(today), to: (d.settings.period || {}).to || C.closeMonthOf(today), taisho: true, group: null, hasNinku: true, active: true, note: '' } : K(id);
-  if (!k) return vSettings();
+// 請書の項目（追加・直す・申請・申請の確認で共通）
+function kForm(k, { admin = true } = {}) {
+  const d = S.doc;
   const f = (key, label, type = 'text', extra = '') => `<label class="f">${label}</label><input type="${type}" data-k="${key}" value="${esc(k[key] ?? '')}" ${extra}>`;
-  return `<h2>${isNew ? '請書を追加' : '請書を直す'}</h2><div class="card">
+  const sid = k.siteId || curSite();
+  return `${sites().length ? `<label class="f">現場</label><select data-k="siteId">${sites().map(st => `<option value="${esc(st.id)}" ${st.id === sid ? 'selected' : ''}>${esc(st.name)}${st.done ? '（竣工）' : ''}</option>`).join('')}</select>` : ''}
    ${f('no', 'No.', 'number', 'inputmode="numeric"')}${f('name', '請書名称（例 鳶工事 請書①）')}${f('short', '短い名前（例 鳶1 鉄骨）')}
    <label class="f">職種</label><select data-k="trade">${['鳶', '土工'].map(t => `<option ${k.trade === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
    ${f('kubun', '工事区分（鉄骨・仮設 など）')}
@@ -347,38 +427,122 @@ function vEditK(id) {
    ${f('start', '契約開始（例 2026-03-02）')}${f('end', '契約終了')}
    ${f('from', '入力できる最初の締め月（YYYY-MM）')}${f('to', '最後の締め月（YYYY-MM）')}
    <label class="chk"><input type="checkbox" data-k="taisho" ${k.taisho !== false ? 'checked' : ''}> 出来高の対象（小口は外す）</label>
-   <label class="f">合算グループ</label><select data-k="group"><option value="">なし（単独で管理）</option>${d.groups.map(g => `<option value="${esc(g.id)}" ${k.group === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
-   <label class="f">単独のときの目標単価（円/人工、空欄＝なし）</label><input type="text" inputmode="numeric" data-k="target" value="${k.target ? k.target : ''}">
+   ${admin ? `<label class="f">合算グループ</label><select data-k="group"><option value="">なし（単独で管理）</option>${d.groups.map(g => `<option value="${esc(g.id)}" ${k.group === g.id ? 'selected' : ''}>${esc(g.name)}${sites().length > 1 ? '（' + esc(siteName(C.siteOfG(d, g))) + '）' : ''}</option>`).join('')}</select>
+   <label class="chk"><input type="checkbox" data-k="common" ${k.common ? 'checked' : ''}> 単独のとき、共通の目標単価（${esc(k.trade || '鳶')}）を使う</label>
+   <label class="f">単独のときの目標単価（円/人工、空欄＝なし。上のチェックが優先）</label><input type="text" inputmode="numeric" data-k="target" value="${k.target ? k.target : ''}">` : ''}
    <label class="chk"><input type="checkbox" data-k="hasNinku" ${k.hasNinku !== false ? 'checked' : ''}> 人工を入れる</label>
-   <label class="chk"><input type="checkbox" data-k="active" ${k.active !== false ? 'checked' : ''}> 使う（外すと一覧・集計から隠す。データは消えません）</label>
-   ${f('note', '備考')}
-   <button class="primary wide" data-a="saveK|${esc(id)}">保存</button><button class="wide" data-a="go|settings">やめる</button></div>`;
+   ${admin ? `<label class="chk"><input type="checkbox" data-k="active" ${k.active !== false ? 'checked' : ''}> 使う（外すと一覧・集計から隠す。データは消えません）</label>` : ''}
+   ${f('note', '備考')}`;
+}
+function newK() { const d = S.doc; return { id: '', no: Math.max(0, ...d.keisho.map(x => x.no || 0)) + 1, name: '', short: '', trade: '鳶', kubun: '', amount: null, start: '', end: '', from: C.closeMonthOf(today), to: (d.settings.period || {}).to || C.nextMonth(C.closeMonthOf(today)), taisho: true, group: null, hasNinku: true, active: true, note: '', siteId: curSite() }; }
+function vEditK(id) {
+  if (!isView()) return vInput();
+  const isNew = id === 'new', k = isNew ? newK() : K(id);
+  if (!k) return vSettings();
+  return `<h2>${isNew ? '請書を追加' : '請書を直す'}</h2><div class="card">${kForm(k)}
+   <button class="primary wide" data-a="saveK|${esc(id)}">保存</button><button class="wide" data-a="back">やめる</button></div>`;
+}
+H.back = () => history.back();
+// フォームの値 → 請書の patch（だめなら null）
+function readK({ admin = true } = {}) {
+  const v = {}; document.querySelectorAll('[data-k]').forEach(i => { v[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
+  const amount = v.amount === '' || v.amount == null ? null : parseAmount(v.amount), target = !v.target ? null : parseAmount(v.target);
+  if (Number.isNaN(amount) || Number.isNaN(target)) { alert('金額は数字で入れてください'); return null; }
+  if (!/^\d{4}-\d{2}$/.test(v.from) || !/^\d{4}-\d{2}$/.test(v.to) || v.from > v.to) { alert('締め月は 2026-11 の形で、最初≦最後にしてください'); return null; }
+  if (!v.name) { alert('請書名称を入れてください'); return null; }
+  const patch = { no: Number(v.no) || 0, name: v.name, short: v.short || v.name, trade: v.trade, kubun: v.kubun, amount, start: v.start || null, end: v.end || null, from: v.from, to: v.to, taisho: v.taisho, hasNinku: v.hasNinku, note: v.note };
+  if (v.siteId) patch.siteId = v.siteId;
+  if (admin) Object.assign(patch, { group: v.group || null, target, common: !!v.common, active: v.active });
+  return patch;
 }
 H.saveK = id => {
-  const v = {}; document.querySelectorAll('[data-k]').forEach(i => { v[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
-  const amount = v.amount === '' ? null : parseAmount(v.amount), target = v.target === '' ? null : parseAmount(v.target);
-  if (Number.isNaN(amount) || Number.isNaN(target)) return alert('金額は数字で入れてください');
-  if (!/^\d{4}-\d{2}$/.test(v.from) || !/^\d{4}-\d{2}$/.test(v.to) || v.from > v.to) return alert('締め月は 2026-11 の形で、最初≦最後にしてください');
-  if (!v.name) return alert('請書名称を入れてください');
-  const patch = { no: Number(v.no) || 0, name: v.name, short: v.short || v.name, trade: v.trade, kubun: v.kubun, amount, start: v.start || null, end: v.end || null, from: v.from, to: v.to, taisho: v.taisho, group: v.group || null, target, hasNinku: v.hasNinku, active: v.active, note: v.note };
+  const patch = readK(); if (!patch) return;
+  if (patch.group) { const g = S.doc.groups.find(x => x.id === patch.group); if (g && sites().length && C.siteOfG(S.doc, g) !== (patch.siteId || curSite())) return alert('合算グループは同じ現場のものを選んでください'); }
+  if (patch.siteId) { ui.site = patch.siteId; localStorage.setItem(KEY.site, patch.siteId); }
   if (id === 'new') op({ type: 'keishoAdd', k: { id: 'k' + Date.now().toString(36), ...patch } }); else op({ type: 'keisho', id, patch });
-  location.hash = '#settings';
+  location.hash = '#list';
+};
+// ---- 請書追加の申請（入力用）→ 幹部が確認 ----
+function vReqNew() {
+  if (isView()) return vEditK('new');
+  if (!sites().length) return '<p>現場がまだありません。</p>';
+  return `${sitebar(curSite())}<h2>請書の追加を申請</h2><div class="card notice"><p class="small">ここで入れた請書は、<b>幹部が確認して「承認」すると</b>一覧に入ります。それまでは数字を入れられません。</p></div>
+   <div class="card">${kForm(newK(), { admin: false })}
+   <button class="primary wide big" data-a="sendReq">申請する</button><button class="wide" data-a="back">やめる</button></div>`;
+}
+H.sendReq = async el => {
+  const req = readK({ admin: false }); if (!req) return;
+  if (!confirm(`「${req.name}」（${siteName(req.siteId)}）の追加を申請しますか？`)) return;
+  el.disabled = true;
+  try {
+    const q = await S.store.addRequest({ req, by: who() });
+    S.requests = [...(S.requests || []), q]; ui.lastReq = q;
+    try { const a = JSON.parse(localStorage.getItem(KEY.reqs) || '[]'); a.unshift({ at: q.at, name: req.name, site: siteName(req.siteId) }); localStorage.setItem(KEY.reqs, JSON.stringify(a.slice(0, 20))); } catch { }
+    location.hash = '#reqdone';
+  } catch (e) { el.disabled = false; alert('申請できませんでした。電波を確認してもう一度。（' + e.message + '）'); }
+};
+function vReqDone() {
+  const q = ui.lastReq; if (!q) return vHome();
+  return `<div class="card ok"><h2>✓ 申請しました</h2><p>「${esc(q.req.name)}」（${esc(siteName(q.req.siteId))}）</p><p class="muted small">幹部が確認して承認すると、請書の一覧に出ます。</p></div><button class="wide" data-a="go|home">現場の一覧へ</button>`;
+}
+// 閲覧用：申請を確認（直してから承認もできる）
+function vReq(id) {
+  if (!isView()) return vHome();
+  const q = (S.requests || []).find(x => x.id === id); if (!q) return '<p>この申請はもう処理済みです。</p><button class="wide" data-a="go|home">現場へ</button>';
+  const k = { ...newK(), ...q.req, group: null, active: true };
+  return `<h2>請書追加の申請を確認</h2><div class="card notice"><p class="small">${dt(q.at)} ${esc(q.by || '')} からの申請です。必要なら直してから「承認して追加」。</p></div>
+   <div class="card">${kForm(k)}
+   <button class="primary wide" data-a="reqOk|${esc(id)}">承認して追加</button><button class="danger wide" data-a="reqNg|${esc(id)}">却下する（追加しない）</button><button class="wide" data-a="go|home">あとで</button></div>`;
+}
+H.reqOk = id => {
+  const q = S.requests.find(x => x.id === id); const patch = readK(); if (!q || !patch) return;
+  const kid = 'k' + Date.now().toString(36);
+  S.requests = S.requests.filter(x => x.id !== id);
+  opMany([{ type: 'keishoAdd', k: { id: kid, ...patch } }, { type: 'reqDecide', id, decision: 'approved', keishoId: kid, req: q.req }]);
+  location.hash = '#home';
+};
+H.reqNg = id => {
+  const q = S.requests.find(x => x.id === id); if (!q || !confirm('この申請を却下しますか？（請書は追加しません）')) return;
+  S.requests = S.requests.filter(x => x.id !== id);
+  op({ type: 'reqDecide', id, decision: 'rejected', req: q.req }); location.hash = '#home';
+};
+// ---- 現場（閲覧用だけ：追加・名前・竣工・労務の現場とのつながり）----
+function vEditS(id) {
+  if (!isView()) return vHome();
+  const isNew = id === 'new', st = isNew ? { name: '', done: false, roumuIds: [] } : C.siteById(S.doc, id); if (!st) return vHome();
+  return `<h2>${isNew ? '現場を追加' : '現場を直す'}</h2><div class="card">
+   <label class="f">現場名</label><input type="text" data-s="name" value="${esc(st.name)}">
+   <label class="f">労務稼働予定の現場ID（例 s004,s023。空でもよい）</label><input type="text" data-s="roumuIds" value="${esc((st.roumuIds || []).join(','))}">
+   <label class="chk"><input type="checkbox" data-s="done" ${st.done ? 'checked' : ''}> 竣工（一覧から隠す。データは消えません）</label>
+   <label class="f">備考</label><input type="text" data-s="note" value="${esc(st.note || '')}">
+   <button class="primary wide" data-a="saveS|${esc(id)}">保存</button><button class="wide" data-a="back">やめる</button></div>`;
+}
+H.saveS = id => {
+  const v = {}; document.querySelectorAll('[data-s]').forEach(i => { v[i.dataset.s] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
+  if (!v.name) return alert('現場名を入れてください');
+  const patch = { name: v.name, done: v.done, note: v.note, roumuIds: v.roumuIds.split(/[,、\s]+/).filter(Boolean) };
+  if (id === 'new') { const sid = 's' + Date.now().toString(36); op({ type: 'siteAdd', s: { id: sid, ...patch } }); ui.site = sid; localStorage.setItem(KEY.site, sid); }
+  else op({ type: 'site', id, patch });
+  location.hash = '#home';
 };
 function vEditG(id) {
   if (!isView()) return vInput();
-  const isNew = id === 'new', g = isNew ? { name: '', target: null, method: '', note: '' } : S.doc.groups.find(x => x.id === id); if (!g) return vSettings();
+  const isNew = id === 'new', g = isNew ? { name: '', target: null, method: '', note: '', common: true, siteId: curSite() } : S.doc.groups.find(x => x.id === id); if (!g) return vSettings();
+  const gs = C.siteOfG(S.doc, g);
   return `<h2>${isNew ? 'グループを追加' : 'グループを直す'}</h2><div class="card">
+   ${sites().length ? `<label class="f">現場</label><select data-k="siteId">${sites().map(st => `<option value="${esc(st.id)}" ${st.id === gs ? 'selected' : ''}>${esc(st.name)}</option>`).join('')}</select>` : ''}
    <label class="f">名前</label><input type="text" data-k="name" value="${esc(g.name)}">
-   <label class="f">目標単価（円/人工）</label><input type="text" inputmode="numeric" data-k="target" value="${g.target ?? ''}">
+   <label class="chk"><input type="checkbox" data-k="common" ${g.common ? 'checked' : ''}> 共通の目標単価（設定の鳶・土工）を使う</label>
+   <label class="f">個別の目標単価（円/人工。共通を使うときは無視）</label><input type="text" inputmode="numeric" data-k="target" value="${g.target ?? ''}">
    <label class="f">算出方法</label><input type="text" data-k="method" value="${esc(g.method || '')}">
    <label class="f">備考</label><input type="text" data-k="note" value="${esc(g.note || '')}">
    <p class="muted small">どの請書を合算するかは、請書の画面の「合算グループ」で選びます。</p>
    <button class="primary wide" data-a="saveG|${esc(id)}">保存</button><button class="wide" data-a="go|settings">やめる</button></div>`;
 }
 H.saveG = id => {
-  const v = {}; document.querySelectorAll('[data-k]').forEach(i => { v[i.dataset.k] = i.value.trim(); });
+  const v = {}; document.querySelectorAll('[data-k]').forEach(i => { v[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
   const target = v.target === '' ? null : parseAmount(v.target); if (Number.isNaN(target)) return alert('目標は数字で入れてください'); if (!v.name) return alert('名前を入れてください');
-  const patch = { name: v.name, target, method: v.method, note: v.note };
+  const patch = { name: v.name, target, method: v.method, note: v.note, common: !!v.common, ...(v.siteId ? { siteId: v.siteId } : {}) };
   if (id === 'new') op({ type: 'groupAdd', g: { id: 'g' + Date.now().toString(36), ...patch } }); else op({ type: 'group', id, patch });
   location.hash = '#settings';
 };
@@ -389,17 +553,24 @@ async function startDemo(role, scope) {
   const pubs = { view: V.pub, input: I.pub }, be = new MemoryBackend();
   const vstore = new DekidakaStore({ backend: be, role: 'view', priv: await importPriv(V.priv), pubs, scope });
   await vstore.save(demoDoc(), null);
-  const store = role === 'view' ? vstore : new DekidakaStore({ backend: be, role: 'input', priv: await importPriv(I.priv), pubs, scope });
+  const istore = new DekidakaStore({ backend: be, role: 'input', priv: await importPriv(I.priv), pubs, scope });
+  // 体験：番頭さんからの「請書追加の申請」を1件（架空）
+  await istore.addRequest({ req: { name: 'デモ請書（申請・架空）', short: 'デモ鳶F', trade: '鳶', kubun: '追加', amount: 1234567, start: '2026-11-01', end: '2027-03-31', from: '2026-11', to: '2027-03', taisho: true, hasNinku: true, note: '体験用', siteId: 'ds1' }, by: '番頭（体験）', at: '2026-11-01T00:00:00.000Z' });
+  const store = role === 'view' ? vstore : istore;
   await open(store, role, scope, true);
 }
 function demoDoc() {
   const at = '2026-01-01T00:00:00.000Z', by = '体験';
-  const K = (id, no, short, trade, amount, group, taisho = true, hasNinku = true) => ({ id, no, name: `デモ請書${'ABCDEF'[no - 1]}（架空）`, short, trade, kubun: '架空', from: '2026-04', to: '2027-03', hasNinku, active: true, amount, start: '2026-04-01', end: '2027-03-31', taisho, group, note: '体験用の架空データ' });
-  const keisho = [K('d1', 1, 'デモ鳶A', '鳶', 12345678, 'gd-t'), K('d2', 2, 'デモ鳶B', '鳶', null, 'gd-t'), K('d3', 3, 'デモ鳶C', '鳶', 2222222, null), K('d4', 4, 'デモ土工A', '土工', 9876543, 'gd-d'), K('d5', 5, 'デモ土工B', '土工', 1111111, 'gd-d'), K('d6', 6, 'デモ小口', '土工', null, null, false, false)];
+  const K = (id, no, short, trade, amount, group, taisho = true, hasNinku = true, siteId = 'ds1') => ({ id, no, name: `デモ請書${'ABCDEFGH'[no - 1]}（架空）`, short, trade, kubun: '架空', from: '2026-04', to: '2027-03', hasNinku, active: true, amount, start: '2026-04-01', end: '2027-03-31', taisho, group, note: '体験用の架空データ', siteId });
+  const keisho = [K('d1', 1, 'デモ鳶A', '鳶', 12345678, 'gd-t'), K('d2', 2, 'デモ鳶B', '鳶', null, 'gd-t'), K('d3', 3, 'デモ鳶C', '鳶', 2222222, null), K('d4', 4, 'デモ土工A', '土工', 9876543, 'gd-d'), K('d5', 5, 'デモ土工B', '土工', 1111111, 'gd-d'), K('d6', 6, 'デモ小口', '土工', null, null, false, false),
+    K('d7', 7, 'デモ鳶D', '鳶', 5555555, 'gd-t2', true, true, 'ds2'), K('d8', 8, 'デモ鳶E', '鳶', 3333333, null, true, true, 'ds3')];
   const records = {}, put = (id, ym, a, n, note) => { records[`${id}|${ym}`] = { amount: { v: a, at, by }, ...(n != null ? { ninku: { v: n, at, by } } : {}), ...(note ? { note: { v: note, at, by } } : {}) }; };
-  ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'].forEach((ym, i) => { put('d1', ym, 1111111 + i * 111111, 22 + i, i === 0 ? '架空' : ''); put('d2', ym, 333333, 11); put('d4', ym, 777777 - i * 11111, 22); if (i % 2) put('d5', ym, 123456, 3); put('d6', ym, 111111, null); });
-  put('d3', '2026-07', 999999, 33);
-  return { schema: C.SCHEMA, merged: [], updatedAt: at, updatedBy: by, settings: { cycleDay: 21, cycle: '毎月21日～翌月20日締め（体験）', period: { from: '2026-04', to: '2027-03' } }, keisho, groups: [{ id: 'gd-t', name: 'デモ鳶（A＋B）', target: 33333 }, { id: 'gd-d', name: 'デモ土工（A＋B）', target: 22222 }], records, notes: { comment: '体験用のコメント（架空）', meeting: [] } };
+  ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'].forEach((ym, i) => { put('d1', ym, 1111111 + i * 111111, 22 + i, i === 0 ? '架空' : ''); put('d2', ym, 333333, 11); put('d4', ym, 777777 - i * 11111, 22); if (i % 2) put('d5', ym, 123456, 3); put('d6', ym, 111111, null); if (i > 2) put('d7', ym, 444444, 12 + i); });
+  put('d3', '2026-07', 999999, 33); put('d8', '2026-05', 222222, 7);
+  const sites = [{ id: 'ds1', name: 'デモ現場A（架空）', roumuIds: [], done: false }, { id: 'ds2', name: 'デモ現場B（架空）', roumuIds: [], done: false }, { id: 'ds3', name: 'デモ現場C（架空・竣工）', roumuIds: [], done: true }];
+  return { schema: C.SCHEMA, merged: [], updatedAt: at, updatedBy: by, settings: { cycleDay: 21, cycle: '毎月21日～翌月20日締め（体験）', period: { from: '2026-04', to: '2027-03' }, sites }, keisho,
+    groups: [{ id: 'gd-t', name: 'デモ鳶（A＋B）', target: 33333, common: true, siteId: 'ds1' }, { id: 'gd-d', name: 'デモ土工（A＋B）', target: 22222, common: true, siteId: 'ds1' }, { id: 'gd-t2', name: 'デモ鳶D', target: 33333, common: true, siteId: 'ds2' }],
+    common: { '鳶': 33333, '土工': 22222 }, requests: [], records, notes: { comment: '体験用のコメント（架空）', meeting: [] } };
 }
 
 boot().catch(e => fatal('エラー：' + e.message));

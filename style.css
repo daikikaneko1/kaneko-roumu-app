@@ -109,6 +109,12 @@ button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{backg
 .kpis{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.kpis>div{flex:1 1 30%;min-width:100px;background:#f7f5fb;border-radius:10px;padding:8px;text-align:center;display:flex;flex-direction:column}
 .kpis b{font-size:22px}.kpis b.mark{font-size:30px;color:#5b3a8e}.kpis small{color:#666;font-size:12px}
 @media (min-width:900px){.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.sumgrid .card{margin:8px 0}}
+.sitebar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#ede7f6;border-radius:10px;padding:6px 10px;margin:4px 0 8px;font-size:15px}.sitebar .sn{min-width:0;overflow:hidden;text-overflow:ellipsis}.sitebar button.link{flex:none;font-size:14px}
+.sitecard{align-items:flex-start}.sitecard .nm{font-size:17px}.kv2{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:14px;margin-top:4px}.kv2 b{font-size:18px}
+.bl{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;color:#444;border-top:1px dashed var(--line);margin-top:6px;padding-top:4px}.bl .bn{font-weight:700;color:#5b3a8e;flex-basis:100%}.bl b{font-size:15px}.bl b.good{color:#2e7d32}.bl b.mid{color:#ef6c00}.bl b.bad{color:#c62828}
+.card.company{border-color:#5b3a8e;background:#faf8fd}.card.company h3{margin:0 0 4px}
+@media (min-width:900px){.sitegrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.sitegrid .card{margin:8px 0}}
+@media (min-width:1400px){.sitegrid{grid-template-columns:1fr 1fr 1fr}}
 
 /* ---- PC（労務・900px以上）。スマホと出来高の見た目は変えない ---- */
 @media (min-width: 900px) {
@@ -156,3 +162,4 @@ button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{backg
   body:not(.dk) .sitelist { grid-template-columns: 1fr 1fr 1fr; }
   body:not(.dk) .cal .d { min-height: 88px; }
 }
+.card.notice{background:#fff8e6;border-color:#f0c36d}.card.notice h3{margin:0 0 6px;color:#8a5a00}
