@@ -163,3 +163,8 @@ button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{backg
   body:not(.dk) .cal .d { min-height: 88px; }
 }
 .card.notice{background:#fff8e6;border-color:#f0c36d}.card.notice h3{margin:0 0 6px;color:#8a5a00}
+.nmrow{display:flex;align-items:center;gap:8px;justify-content:space-between}
+button.edit{min-height:34px;padding:2px 10px;font-size:14px;border-radius:17px;border:1px solid #5b3a8e;background:#fff;color:#5b3a8e;font-weight:700;flex:none}
+.sitebar .sbtn{display:flex;gap:8px;align-items:center;flex:none}
+.kv2.sub{font-size:13px;color:#555}
+table.grid.dk td.barc{min-width:90px;padding:4px 6px}.bar{display:block;height:12px;border-radius:6px;background:#b39ddb}
