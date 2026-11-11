@@ -1,5 +1,6 @@
 // 出来高管理（スマホで入力・PCで集計）。合言葉は労務とは別：入力用（番頭さん）・閲覧用（幹部）。
 import * as C from './dk-core.js';
+import * as G from './dk-charts.js';
 import { decryptSecret } from './crypto.js';
 import { importPriv, generateRoleKey } from './dk-crypto.js';
 import { GitHubBackend, MemoryBackend, DekidakaStore } from './dk-store.js';
@@ -8,7 +9,7 @@ import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'dk.pass', role: 'dk.role', who: 'dk.who', sent: 'dk.sent', rm: 'dk.reportMonth', aggAll: 'dk.aggAll', site: 'dk.site', showDone: 'dk.showDone', reqs: 'dk.reqs' };
+const KEY = { pass: 'dk.pass', role: 'dk.role', who: 'dk.who', sent: 'dk.sent', rm: 'dk.reportMonth', aggAll: 'dk.aggAll', aggTable: 'dk.aggTable', site: 'dk.site', showDone: 'dk.showDone', reqs: 'dk.reqs' };
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 const S = { role: null, scope: 0, store: null, sync: null, doc: null, demo: false, pendingInfo: { n: 0, unreadable: 0 }, requests: [] };
 const ui = { kid: null, ym: null, blk: null, last: null, edit: null };
@@ -172,6 +173,7 @@ function vHome() {
       <div class="nmrow"><div class="nm">${esc(st.name)}${st.done ? ' <span class="badge">竣工</span>' : ''}</div>${isView() ? `<button class="edit" data-a="go|edits/${esc(st.id)}" title="現場名・竣工を直す">✎ 編集</button>` : ''}</div>
       <div class="meta">請書 ${r.count}件${r.koguCount ? `・小口 ${r.koguCount}件` : ''}${can('master') ? `／請書金額 ${yenOr(r.amount, '未設定')}` : ''}</div>
       ${Cl ? `<div class="kv2"><span>累計請求 <b>${yen(r.cum)}</b> 円</span>${L ? `<span>累計人工 <b>${num(r.cumNinku, 2)}</b></span>` : ''}</div>${r.koguCount ? `<div class="kv2 sub"><span>うち請書 ${yen(r.keishoCum)} 円</span><span>うち小口（積み上げ） ${yen(r.kogu)} 円</span></div>` : ''}` : ''}
+      ${can('master') && Cl ? `<div class="minibal">${C.siteKeisho(S.doc, st.id).filter(k => !C.isKogu(k)).map(k => G.balanceBar(k.amount, C.cumThrough(S.doc, k).amount, { mini: true, name: esc(kname(k)) })).join('')}</div>` : ''}
       ${L ? r.secs.filter(b => b.target).map(blockLine).join('') : ''}</div><span class="arrow">›</span></div>`;
   }).join('');
   let company = '';
@@ -304,12 +306,16 @@ function vList() {
   const kcum = kc.reduce((t, x) => t + x.c.amount, 0);
   const ktot = kg.length > 1 ? `<tr class="tot"><td class="nm">小口の合計</td>${Cl ? `<td>${yen(kc.reduce((t, x) => t + (x.m || 0), 0))}</td><td>${yen(kcum)}</td><td></td>` : ''}${L ? '<td></td>' : ''}</tr>` : '';
   return `${sitebar(sid)}<h2>請書一覧</h2><p class="muted small">累計は ${C.ymSlash(R || '')} 分まで（報告月はサマリーで変えられます）。行を押すと月ごとの表。</p>
+   ${M && Cl && ks.length ? `<div class="card chartcard"><h3>請書残高<span class="muted small">（濃い＝請求済み・薄い＝残り）</span></h3>${ks.map(k => G.balanceBar(k.amount, C.cumThrough(S.doc, k, R).amount, { name: esc(kname(k)) })).join('')}<p class="muted small">残り2割未満は黄、1割未満・超過は赤。</p></div>` : ''}
    <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">請書</th>${M ? '<th>請書金額</th>' : ''}${Cl ? '<th>累計請求</th>' : ''}${M && Cl ? '<th>消化率</th>' : ''}${L ? '<th>累計人工</th>' : ''}</tr></thead><tbody>${rows}${tot}</tbody></table></div>
    ${kg.length ? `<h3>小口（単月請求・積み上げ）</h3><p class="muted small">小口は請書金額がなく、毎月の請求がそのまま積み上がります（出来高の対象外）。</p>
-   <div class="grid-wrap"><table class="grid dk kogu"><thead><tr><th class="nm">小口</th>${Cl ? `<th>当月請求<br><small>${C.ymSlash(R || '')}</small></th><th>累計請求</th><th>請求した月</th>` : ''}${L ? '<th>累計人工</th>' : ''}</tr></thead><tbody>${krows}${ktot}</tbody></table></div>` : ''}
+   <div class="grid-wrap"><table class="grid dk kogu"><thead><tr><th class="nm">小口</th>${Cl ? `<th>当月請求<br><small>${C.ymSlash(R || '')}</small></th><th>累計請求</th><th>請求した月</th>` : ''}${L ? '<th>累計人工</th>' : ''}</tr></thead><tbody>${krows}${ktot}</tbody></table></div>
+   ${Cl ? kg.map(k => `<div class="card chartcard"><h3>${esc(kname(k))}<span class="muted small">（月々の請求と積み上がり）</span></h3>${G.koguSvg(trimSer(C.keishoSeries(S.doc, k), R), { h: 180 })}</div>`).join('') : ''}` : ''}
    ${Cl && kg.length && ks.length ? `<div class="card"><div class="kv2"><span>現場の累計請求（請書＋小口） <b>${yen(cum + kcum)}</b> 円</span></div></div>` : ''}
    ${addKButton(sid)}`;
 }
+// グラフ用：データのある最後の月まで（報告月 R があればそこまで）
+function trimSer(ser, R) { const t = ser.filter(r => !R || r.ym <= R); const li = Math.max(...t.map((r, i) => (r.amount != null ? i : -1)), -1); return t.slice(0, li + 1); }
 // 請書を足すボタン：閲覧用は直接追加、入力用は「請書追加の申請」（幹部が確認）
 function addKButton(sid) {
   if (!sites().length) return isView() ? '<button class="wide" data-a="go|editk/new">＋ 請書を追加</button>' : '';
@@ -324,12 +330,15 @@ function vSheet(id) {
   const kogu = C.isKogu(k), maxCum = Math.max(1, ...ser.map(r => Math.abs(r.cumAmount)));
   const bar = r => (kogu ? `<td class="barc"><span class="bar" style="width:${Math.round(Math.max(0, r.cumAmount) / maxCum * 100)}%"></span></td>` : '');
   return `${sites().length ? sitebar(C.siteOfK(S.doc, k)) : ''}<h2>${esc(kname(k))}${kogu ? ' <span class="badge">小口</span>' : ''}</h2><p class="muted small">${esc(k.name)}／${kogu ? '小口（月々の単月請求。請書金額はなく、請求が積み上がります）' : '請書金額 ' + yenOr(k.amount)}${k.start && !kogu ? '／契約 ' + esc(k.start) + '〜' + esc(k.end || '') : ''}</p>
+   ${kogu && can('claims') ? `<div class="card chartcard"><h3>月々の請求と累計</h3>${G.koguSvg(trimSer(ser))}</div>` : !kogu && can('master') && can('claims') ? `<div class="card chartcard"><h3>請書残高</h3>${G.balanceBar(k.amount, ser.length ? ser[ser.length - 1].cumAmount : 0)}</div>` : ''}
    ${allToggle()}
    <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">締め月</th><th>当月請求額</th>${L ? '<th>当月人工</th>' : ''}<th>累計請求額</th>${kogu ? '<th>積み上がり</th>' : ''}${L ? '<th>累計人工</th><th class="l">備考</th>' : ''}</tr></thead><tbody>
    ${show.map(r => `<tr ${isView() ? `data-a="go|input/${esc(k.id)}/${r.ym}" class="click"` : ''}><td class="nm">${C.ymSlash(r.ym)}</td><td class="${r.amount < 0 ? 'neg' : ''}${src('amount', r.ym)}">${yen(r.amount)}</td>${L ? `<td class="${src('ninku', r.ym)}">${num(r.ninku, 3)}</td>` : ''}<td>${yen(r.cumAmount)}</td>${bar(r)}${L ? `<td>${num(r.cumNinku, 2)}</td><td class="l">${esc(r.note || '')}</td>` : ''}</tr>`).join('')}
    <tr class="tot"><td class="nm">合計</td><td>${yen(ser.reduce((s, r) => s + (r.amount || 0), 0))}</td>${L ? `<td>${num(ser.reduce((s, r) => s + (r.ninku || 0), 0), 3)}</td>` : ''}<td></td>${kogu ? '<td></td>' : ''}${L ? '<td></td><td></td>' : ''}</tr></tbody></table></div>
    ${isView() ? `<p class="muted small">行を押すとその月を直せます。水色＝入力用から届いた値。</p><button class="wide" data-a="go|editk/${esc(k.id)}">${kogu ? 'この小口（名前・種別・期間）を直す' : 'この請書（名前・金額・期間・種別）を直す'}</button>` : ''}`;
 }
+const tblOn = () => localStorage.getItem(KEY.aggTable) === '1';
+H.aggtbl = () => { localStorage.setItem(KEY.aggTable, tblOn() ? '0' : '1'); ui.keepScroll = true; render(); };
 const allToggle = () => { const on = localStorage.getItem(KEY.aggAll) === '1'; return `<button class="toggle ${on ? 'on' : ''}" data-a="aggall">${on ? '☑' : '☐'} 先の空の月も表示</button>`; };
 H.aggall = () => { localStorage.setItem(KEY.aggAll, localStorage.getItem(KEY.aggAll) === '1' ? '0' : '1'); ui.keepScroll = true; render(); };
 
@@ -348,7 +357,9 @@ function vAgg() {
   const tot = `<tr class="tot"><td class="nm">合計</td>${multi ? s.tot.per.map(x => `<td>${yen(x.amount)}</td><td>${num(x.ninku, 2)}</td>`).join('') : ''}<td>${yen(s.tot.G)}</td><td>${num(s.tot.H, 2)}</td><td class="${cls(s.tot.I)}">${yen(s.tot.I)}</td>${T ? '<td></td><td></td>' : ''}<td></td><td></td><td></td></tr>`;
   return `${sitebar(sid)}<h2>出来高集計</h2><div class="tabs wrap">${bl.map(x => `<button data-a="blk|${x.id}" class="${x.id === b.id ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>
    <p class="muted small">${multi ? esc(b.members.map(kname).join('＋')) + ' の合算' : '単独で出来高管理'}${T ? `／目標 ${yen(T)} 円/人工` : '／目標なし'}。出来高＝請求÷人工（人工0の月は空欄）。</p>
-   ${allToggle()}<div class="grid-wrap"><table class="grid dk"><thead>${head}</thead><tbody>${rows.map(tr).join('')}${tot}</tbody></table></div>
+   <div class="card chartcard"><h3>出来高推移<span class="muted small">（円/人工）</span></h3>${G.trendHead(s.rows.slice(0, last + 1), T)}${G.trendSvg(s.rows.slice(0, last + 1), T, { title: b.name + ' の出来高推移' })}</div>
+   <button class="toggle ${tblOn() ? 'on' : ''}" data-a="aggtbl">${tblOn() ? '☑' : '☐'} 表も表示（月ごとの数字）</button>
+   ${tblOn() ? `${allToggle()}<div class="grid-wrap"><table class="grid dk"><thead>${head}</thead><tbody>${rows.map(tr).join('')}${tot}</tbody></table></div>` : ''}
    <button class="wide" data-a="csv|month">⬇ 月次CSV</button>`;
 }
 H.blk = id => { ui.blk = id; ui.keepScroll = true; render(); };
@@ -358,6 +369,8 @@ function dataMonths() { const s = new Set(); for (const [key, r] of Object.entri
 function reportMonth() { const ms = dataMonths(), saved = localStorage.getItem(KEY.rm); return saved && ms.includes(saved) ? saved : C.latestDataMonth(S.doc); }
 function vSum() {
   const R = reportMonth(), sid = sites().length ? curSite() : null, sm = C.summary(S.doc, R, sid), ms = dataMonths();
+  const p = S.doc.settings.period || {};
+  const secChart = b => { const months = C.monthsBetween(p.from || b.members[0].from, p.to || b.members[0].to).filter(m => !R || m <= R); const rs = C.groupSeries(S.doc, b.members, b.target, months).rows; const li = Math.max(...rs.map((r, i) => (r.I != null ? i : -1)), -1); return li < 0 ? '' : `<div class="minichart">${G.trendHead(rs.slice(0, li + 1), b.target)}${G.trendSvg(rs.slice(0, li + 1), b.target, { h: 190, title: b.name })}</div>`; };
   const sec = b => {
     const multi = b.members.length > 1, cols = multi ? [...b.items, null] : b.items;
     const cell = (i, f) => (i ? f(i) : '');
@@ -370,7 +383,7 @@ function vSum() {
      ${row('累計人工', i => num(i.cumNinku, 1), () => num(b.cumNinku, 1))}
      </table>
      <div class="kpis"><div><small>${multi ? '合算' : ''}出来高</small><b>${b.dekidaka == null ? '—' : yen(b.dekidaka)}</b><small>円/人工</small></div>
-      ${b.target ? `<div><small>目標との差${b.type === 'group' && b.g && b.g.common || b.type === 'single' && b.members[0].common ? '（共通単価）' : ''}</small><b class="${b.diff < 0 ? 'neg' : ''}">${b.diff == null ? '—' : (b.diff > 0 ? '+' : '') + yen(b.diff)}</b><small>達成率 ${b.dekidaka == null ? '—' : pct(b.dekidaka / b.target)}</small></div><div><small>評価</small><b class="mark">${b.eval || '—'}</b><small>◎目標以上 ○9割以上 △</small></div>` : ''}</div></div>`;
+      ${b.target ? `<div><small>目標との差${b.type === 'group' && b.g && b.g.common || b.type === 'single' && b.members[0].common ? '（共通単価）' : ''}</small><b class="${b.diff < 0 ? 'neg' : ''}">${b.diff == null ? '—' : (b.diff > 0 ? '+' : '') + yen(b.diff)}</b><small>達成率 ${b.dekidaka == null ? '—' : pct(b.dekidaka / b.target)}</small></div><div><small>評価</small><b class="mark">${b.eval || '—'}</b><small>◎目標以上 ○9割以上 △</small></div>` : ''}</div>${secChart(b)}</div>`;
   };
   const t = sm.totals;
   const totals = `<div class="card"><h3>総請求額集計</h3><table class="kv sum"><tr><th>区分</th><th>累計請求額</th><th>構成比</th></tr>
@@ -578,7 +591,7 @@ async function startDemo(role, scope) {
 function demoDoc() {
   const at = '2026-01-01T00:00:00.000Z', by = '体験';
   const K = (id, no, short, trade, amount, group, taisho = true, hasNinku = true, siteId = 'ds1') => ({ id, no, name: `デモ請書${'ABCDEFGH'[no - 1]}（架空）`, short, trade, kubun: '架空', from: '2026-04', to: '2027-03', hasNinku, active: true, amount, start: '2026-04-01', end: '2027-03-31', taisho, group, note: '体験用の架空データ', siteId });
-  const keisho = [K('d1', 1, 'デモ鳶A', '鳶', 12345678, 'gd-t'), K('d2', 2, 'デモ鳶B', '鳶', null, 'gd-t'), K('d3', 3, 'デモ鳶C', '鳶', 2222222, null), K('d4', 4, 'デモ土工A', '土工', 9876543, 'gd-d'), K('d5', 5, 'デモ土工B', '土工', 1111111, 'gd-d'), { ...K('d6', 6, 'デモ小口', '土工', null, null, false, false), kubun: '小口', kind: 'kogu', start: null, end: null },
+  const keisho = [K('d1', 1, 'デモ鳶A', '鳶', 12345678, 'gd-t'), K('d2', 2, 'デモ鳶B', '鳶', null, 'gd-t'), K('d3', 3, 'デモ鳶C', '鳶', 900000, null), K('d4', 4, 'デモ土工A', '土工', 9876543, 'gd-d'), K('d5', 5, 'デモ土工B', '土工', 400000, 'gd-d'), { ...K('d6', 6, 'デモ小口', '土工', null, null, false, false), kubun: '小口', kind: 'kogu', start: null, end: null },
     K('d7', 7, 'デモ鳶D', '鳶', 5555555, 'gd-t2', true, true, 'ds2'), K('d8', 8, 'デモ鳶E', '鳶', 3333333, null, true, true, 'ds3')];
   const records = {}, put = (id, ym, a, n, note) => { records[`${id}|${ym}`] = { amount: { v: a, at, by }, ...(n != null ? { ninku: { v: n, at, by } } : {}), ...(note ? { note: { v: note, at, by } } : {}) }; };
   ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'].forEach((ym, i) => { put('d1', ym, 1111111 + i * 111111, 22 + i, i === 0 ? '架空' : ''); put('d2', ym, 333333, 11); put('d4', ym, 777777 - i * 11111, 22); if (i % 2) put('d5', ym, 123456, 3); put('d6', ym, 111111, null); if (i > 2) put('d7', ym, 444444, 12 + i); });
