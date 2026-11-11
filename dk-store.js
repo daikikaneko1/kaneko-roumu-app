@@ -6,6 +6,7 @@ import { ConflictError } from './store.js';
 import { seal, open } from './dk-crypto.js';
 import { SCHEMA, splitState, joinState, recipientRoles, FIELDS } from './dk-core.js';
 
+const newId = at => at.replace(/[-:.TZ]/g, '').slice(0, 17) + '-' + b64e(globalThis.crypto.getRandomValues(new Uint8Array(6))).replace(/[+/=]/g, c => ({ '+': 'x', '/': 'y', '=': '' }[c]));
 const utf8 = { enc: s => b64e(new TextEncoder().encode(s)), dec: s => new TextDecoder().decode(b64d(s.replace(/\n/g, ''))) };
 export class GitHubBackend {
   constructor({ owner, repo, branch = 'main', token, fetchImpl }) { Object.assign(this, { owner, repo, branch, token }); this.fetch = fetchImpl || globalThis.fetch.bind(globalThis); }
@@ -75,13 +76,14 @@ export class DekidakaStore {
     const file = JSON.parse(await this.backend.getBlob(e.sha)); let out = null;
     for (const [ds, env] of Object.entries(file.sections || {})) {
       const o = await open(env, this.role, this.priv, `entry/${file.id}/${ds}`); if (!o) continue;
+      if (o.type === 'keishoReq') return { id: file.id, type: 'keishoReq', at: o.at, by: o.by, req: o.req };
       out = out || { id: file.id, key: o.key, at: o.at, by: o.by, fields: {} }; Object.assign(out.fields, o.fields);
     }
     return out; // 読める区分がなければ null
   }
   // fields: { amount?, ninku?, note? }（入れた項目だけ）
   async addEntry({ key, fields, by = '', at = new Date().toISOString() }) {
-    const id = at.replace(/[-:.TZ]/g, '').slice(0, 17) + '-' + b64e(globalThis.crypto.getRandomValues(new Uint8Array(6))).replace(/[+/=]/g, c => ({ '+': 'x', '/': 'y', '=': '' }[c]));
+    const id = newId(at);
     const byDs = {};
     for (const [f, v] of Object.entries(fields)) { const ds = FIELDS[f]; if (!ds) continue; (byDs[ds] = byDs[ds] || {})[f] = v; }
     const sections = {};
@@ -90,10 +92,17 @@ export class DekidakaStore {
     await this.backend.putFile(`${this.dir}/entries/${id}.json`, JSON.stringify(file) + '\n', null, '出来高 入力');
     return { id, key, at, by, fields };
   }
-  // 取り込み済み（merged）でない入力を読む
+  // 請書追加の申請（入力用 → 閲覧用が承認・却下）。中身（請書名・金額など）は master と同じ受取人だけが読める
+  async addRequest({ req, by = '', at = new Date().toISOString() }) {
+    const id = newId(at), sections = { master: await seal({ type: 'keishoReq', at, by, req }, this.recips('master'), `entry/${id}/master`) };
+    await this.backend.putFile(`${this.dir}/entries/${id}.json`, JSON.stringify({ v: 1, kind: 'dekidaka-entry', id, sections }) + '\n', null, '出来高 請書追加の申請');
+    return { id, type: 'keishoReq', at, by, req };
+  }
+  // 取り込み済み（merged）でない入力を読む。entries＝数字の入力、requests＝請書追加の申請（承認・却下まで残る）
   async pendingEntries(merged = []) {
-    const done = new Set(merged), out = []; let unreadable = 0;
-    for (const e of await this.listEntries()) { if (done.has(e.id)) continue; const r = await this.readEntry(e); if (r) out.push(r); else unreadable++; }
-    return { entries: out.sort((a, b) => (a.at < b.at ? -1 : 1)), unreadable };
+    const done = new Set(merged), out = [], reqs = []; let unreadable = 0;
+    for (const e of await this.listEntries()) { if (done.has(e.id)) continue; const r = await this.readEntry(e); if (!r) unreadable++; else if (r.type === 'keishoReq') reqs.push(r); else out.push(r); }
+    const byAt = (a, b) => (a.at < b.at ? -1 : 1);
+    return { entries: out.sort(byAt), requests: reqs.sort(byAt), unreadable };
   }
 }
