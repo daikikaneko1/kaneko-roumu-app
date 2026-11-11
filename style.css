@@ -188,3 +188,11 @@ svg.chart rect.kb{fill:#b39ddb}
 @media (min-width:900px){.bal.mini{grid-template-columns:minmax(70px,9em) 1fr 5em}.bal.mini .bl{text-align:right}}
 
 @media(min-width:800px){svg.chart{max-height:320px}}
+
+/* 出来高 → 山積み管理（労務）へもどるリンク（ふつうのリンク。合言葉・データは渡さない） */
+body.dk header{flex-wrap:wrap;gap:6px 10px}
+body.dk #title{flex:1 1 auto}
+a.applink{color:#fff;text-decoration:none;font-size:14px;font-weight:700;border:1.5px solid rgba(255,255,255,.75);border-radius:16px;padding:4px 12px;white-space:nowrap;min-height:34px;display:inline-flex;align-items:center}
+a.applink:hover,a.applink:focus-visible{background:rgba(255,255,255,.18)}
+body.dk #status:empty{display:none}
+body.dk #status{margin-left:auto}
