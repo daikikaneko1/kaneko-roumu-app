@@ -9,7 +9,7 @@ import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'dk.pass', role: 'dk.role', who: 'dk.who', sent: 'dk.sent', rm: 'dk.reportMonth', aggAll: 'dk.aggAll', aggTable: 'dk.aggTable', site: 'dk.site', showDone: 'dk.showDone', reqs: 'dk.reqs' };
+const KEY = { pass: 'dk.pass', role: 'dk.role', who: 'dk.who', sent: 'dk.sent', rm: 'dk.reportMonth', aggAll: 'dk.aggAll', aggTable: 'dk.aggTable', site: 'dk.site', showDone: 'dk.showDone', reqs: 'dk.reqs', combo: 'dk.combo.', aggTab: 'dk.aggTab' };
 const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 const S = { role: null, scope: 0, store: null, sync: null, doc: null, demo: false, pendingInfo: { n: 0, unreadable: 0 }, requests: [] };
 const ui = { kid: null, ym: null, blk: null, last: null, edit: null };
@@ -331,6 +331,7 @@ function vSheet(id) {
   const bar = r => (kogu ? `<td class="barc"><span class="bar" style="width:${Math.round(Math.max(0, r.cumAmount) / maxCum * 100)}%"></span></td>` : '');
   return `${sites().length ? sitebar(C.siteOfK(S.doc, k)) : ''}<h2>${esc(kname(k))}${kogu ? ' <span class="badge">小口</span>' : ''}</h2><p class="muted small">${esc(k.name)}／${kogu ? '小口（月々の単月請求。請書金額はなく、請求が積み上がります）' : '請書金額 ' + yenOr(k.amount)}${k.start && !kogu ? '／契約 ' + esc(k.start) + '〜' + esc(k.end || '') : ''}</p>
    ${kogu && can('claims') ? `<div class="card chartcard"><h3>月々の請求と累計</h3>${G.koguSvg(trimSer(ser))}</div>` : !kogu && can('master') && can('claims') ? `<div class="card chartcard"><h3>請書残高</h3>${G.balanceBar(k.amount, ser.length ? ser[ser.length - 1].cumAmount : 0)}</div>` : ''}
+   ${!kogu && L && can('claims') ? (() => { const t = C.keishoTrend(S.doc, k); return t.hasNinku ? `<div class="card chartcard ktrend"><h3>この請書の出来高推移<span class="muted small">（円/人工${t.target ? '・目標 ' + yen(t.target) : '・目標なし'}${t.block && t.block.type === 'group' ? '・合算「' + esc(t.block.name) + '」の目標' : ''}）</span></h3>${G.trendHead(t.rows, t.target)}${G.trendSvg(t.rows, t.target, { title: kname(k) + ' の出来高推移' })}</div>` : ''; })() : ''}
    ${allToggle()}
    <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">締め月</th><th>当月請求額</th>${L ? '<th>当月人工</th>' : ''}<th>累計請求額</th>${kogu ? '<th>積み上がり</th>' : ''}${L ? '<th>累計人工</th><th class="l">備考</th>' : ''}</tr></thead><tbody>
    ${show.map(r => `<tr ${isView() ? `data-a="go|input/${esc(k.id)}/${r.ym}" class="click"` : ''}><td class="nm">${C.ymSlash(r.ym)}</td><td class="${r.amount < 0 ? 'neg' : ''}${src('amount', r.ym)}">${yen(r.amount)}</td>${L ? `<td class="${src('ninku', r.ym)}">${num(r.ninku, 3)}</td>` : ''}<td>${yen(r.cumAmount)}</td>${bar(r)}${L ? `<td>${num(r.cumNinku, 2)}</td><td class="l">${esc(r.note || '')}</td>` : ''}</tr>`).join('')}
@@ -343,8 +344,12 @@ const allToggle = () => { const on = localStorage.getItem(KEY.aggAll) === '1'; r
 H.aggall = () => { localStorage.setItem(KEY.aggAll, localStorage.getItem(KEY.aggAll) === '1' ? '0' : '1'); ui.keepScroll = true; render(); };
 
 // ---- 出来高集計（Excel「出来高集計」）----
+const COMBO = '_combo';
+const aggTabs = (bl, on) => `<div class="tabs wrap">${bl.map(x => `<button data-a="blk|${x.id}" class="${x.id === on ? 'on' : ''}">${esc(x.name)}</button>`).join('')}<button data-a="blk|${COMBO}" class="combo ${on === COMBO ? 'on' : ''}">🔀 組み合わせで見る</button></div>`;
 function vAgg() {
-  const sid = curSite(), bl = C.blocks(S.doc, sid); if (!bl.length) return sitebar(sid) + '<p>この現場には出来高対象の請書がありません。</p>';
+  const sid = curSite(), bl = C.blocks(S.doc, sid);
+  if (ui.blk == null) ui.blk = localStorage.getItem(KEY.aggTab); // 最後に見たタブ（この端末）
+  if (ui.blk === COMBO || !bl.length) { if (!C.siteKeisho(S.doc, sid, true).some(k => !C.isKogu(k))) return sitebar(sid) + '<p>この現場には出来高対象の請書がありません。</p>'; ui.blk = COMBO; return vCombo(sid, bl); }
   const b = bl.find(x => x.id === ui.blk) || bl[0]; ui.blk = b.id;
   const p = S.doc.settings.period || {}; const months = C.monthsBetween(p.from || b.members[0].from, p.to || b.members[0].to);
   const s = C.groupSeries(S.doc, b.members, b.target, months);
@@ -355,14 +360,75 @@ function vAgg() {
   const cls = v => (T && v != null ? (v >= T ? 'good' : v >= T * 0.9 ? 'mid' : 'bad') : '');
   const tr = r => `<tr><td class="nm">${C.ymSlash(r.ym)}</td>${multi ? r.per.map(x => `<td class="${x.amount < 0 ? 'neg' : ''}">${yen(x.amount)}</td><td>${num(x.ninku, 2)}</td>`).join('') : ''}<td class="${r.G < 0 ? 'neg' : ''}">${yen(r.G)}</td><td>${num(r.H, 2)}</td><td class="${cls(r.I)}">${yen(r.I)}</td>${T ? `<td class="${r.J < 0 ? 'neg' : ''}">${yen(r.J)}</td><td>${r.K == null ? '' : pct(r.K)}</td>` : ''}<td>${yen(r.L)}</td><td>${num(r.M, 2)}</td><td class="${cls(r.N)}">${yen(r.N)}</td></tr>`;
   const tot = `<tr class="tot"><td class="nm">合計</td>${multi ? s.tot.per.map(x => `<td>${yen(x.amount)}</td><td>${num(x.ninku, 2)}</td>`).join('') : ''}<td>${yen(s.tot.G)}</td><td>${num(s.tot.H, 2)}</td><td class="${cls(s.tot.I)}">${yen(s.tot.I)}</td>${T ? '<td></td><td></td>' : ''}<td></td><td></td><td></td></tr>`;
-  return `${sitebar(sid)}<h2>出来高集計</h2><div class="tabs wrap">${bl.map(x => `<button data-a="blk|${x.id}" class="${x.id === b.id ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>
+  return `${sitebar(sid)}<h2>出来高集計</h2>${aggTabs(bl, b.id)}
    <p class="muted small">${multi ? esc(b.members.map(kname).join('＋')) + ' の合算' : '単独で出来高管理'}${T ? `／目標 ${yen(T)} 円/人工` : '／目標なし'}。出来高＝請求÷人工（人工0の月は空欄）。</p>
    <div class="card chartcard"><h3>出来高推移<span class="muted small">（円/人工）</span></h3>${G.trendHead(s.rows.slice(0, last + 1), T)}${G.trendSvg(s.rows.slice(0, last + 1), T, { title: b.name + ' の出来高推移' })}</div>
    <button class="toggle ${tblOn() ? 'on' : ''}" data-a="aggtbl">${tblOn() ? '☑' : '☐'} 表も表示（月ごとの数字）</button>
    ${tblOn() ? `${allToggle()}<div class="grid-wrap"><table class="grid dk"><thead>${head}</thead><tbody>${rows.map(tr).join('')}${tot}</tbody></table></div>` : ''}
    <button class="wide" data-a="csv|month">⬇ 月次CSV</button>`;
 }
-H.blk = id => { ui.blk = id; ui.keepScroll = true; render(); };
+H.blk = id => { ui.blk = id; localStorage.setItem(KEY.aggTab, id); ui.keepScroll = true; render(); };
+// ---- 組み合わせで見る（好きな請書をえらんで合算。後継の請書もつないで通しの推移）----
+// えらんだ請書は端末ごとに現場別で記憶（localStorage。データには保存しない）
+const comboKey = sid => KEY.combo + (sid || '-');
+function comboSel(sid) {
+  const all = C.siteKeisho(S.doc, sid, true).filter(k => !C.isKogu(k)).map(k => k.id);
+  try { const v = JSON.parse(localStorage.getItem(comboKey(sid))); if (Array.isArray(v)) return v.filter(id => all.includes(id)); } catch (e) { /* 壊れていたら初期値 */ }
+  const p = C.comboPresets(S.doc, sid)[0]; return p ? p.ids : [];
+}
+const setComboSel = (sid, ids) => { localStorage.setItem(comboKey(sid), JSON.stringify(ids)); ui.keepScroll = true; render(); };
+H.cbk = (id, el) => { const sid = curSite(), sel = new Set(comboSel(sid)); if (el && el.checked) sel.add(id); else sel.delete(id); setComboSel(sid, [...sel]); };
+H.cpre = pid => { const sid = curSite(), p = C.comboPresets(S.doc, sid).find(x => x.id === pid); setComboSel(sid, p ? p.ids : []); };
+H.cnone = () => setComboSel(curSite(), []);
+function vCombo(sid, bl) {
+  const d = S.doc, ks = C.siteKeisho(d, sid, true).filter(k => !C.isKogu(k)), sel = comboSel(sid), on = new Set(sel);
+  const r = C.comboResult(d, sel), presets = C.comboPresets(d, sid);
+  const same = p => p.ids.length === sel.length && p.ids.every(id => on.has(id));
+  const gname = gid => ((d.groups || []).find(g => g.id === gid) || {}).name || '';
+  const trades = [...new Set(ks.map(k => k.trade))];
+  const label = k => { const c = C.cumThrough(d, k, null); return `<label class="cbk ${on.has(k.id) ? 'on' : ''}"><input type="checkbox" data-a="cbk|${esc(k.id)}" ${on.has(k.id) ? 'checked' : ''}><span class="cn"><b>${esc(kname(k))}</b>${k.active === false ? ' <span class="badge">使っていない</span>' : ''}${k.taisho === false ? ' <span class="badge">出来高対象外</span>' : ''}<small>${C.ymSlash(k.from)}〜${C.ymSlash(k.to)}${k.group ? '／' + esc(gname(k.group)) : ''}${c.ninku ? '' : '／人工なし'}</small></span></label>`; };
+  const picker = `<div class="card combo"><h3>組み合わせで見る<span class="muted small">（請書をいくつでも。後の請書をつなぐと通しの推移）</span></h3>
+    <div class="presets"><span class="muted small">すぐ選ぶ：</span>${presets.map(p => `<button class="chip ${same(p) ? 'on' : ''}" data-a="cpre|${esc(p.id)}">${esc(p.name)}</button>`).join('')}<button class="chip" data-a="cnone">すべて外す</button></div>
+    ${trades.map(t => `<div class="ctrade"><div class="ct">${esc(t)}</div><div class="cgrid">${ks.filter(k => k.trade === t).map(label).join('')}</div></div>`).join('')}
+    <p class="muted small">えらんだ請書は、この端末に現場ごとに覚えます（データには保存しません）。</p></div>`;
+  if (!r.members.length) return `${sitebar(sid)}<h2>出来高集計</h2>${aggTabs(bl, COMBO)}${picker}<div class="card notice">請書を1つ以上えらんでください。</div>`;
+  const T = r.target;
+  const kv = (l, v, cls = '') => `<div><small>${l}</small><b class="${cls}">${v}</b></div>`;
+  const kpis = `<div class="kpis">${kv('累計請求', yen(r.cum) + '<small> 円</small>', r.cum < 0 ? 'neg' : '')}${kv('累計人工', num(r.ninku, 1))}${kv('出来高（円/人工）', r.dekidaka == null ? '—' : yen(r.dekidaka))}${T ? kv('目標との差', r.diff == null ? '—' : (r.diff > 0 ? '+' : '') + yen(r.diff) + `<small> 達成率 ${pct(r.achieve)}</small>`, r.diff < 0 ? 'neg' : 'good') : ''}</div>`;
+  const tt = r.byTrade.length > 1 ? `<div class="card warn-soft"><b>⚠ 職種（${r.trades.map(esc).join('・')}）がまざっています。</b> 目標単価が職種で違うので、合わせた数字には目標を出しません（目標線もなし）。職種ごとの内訳：
+    <div class="grid-wrap"><table class="grid dk"><thead><tr><th class="nm">職種</th><th>請書</th><th>累計請求</th><th>累計人工</th><th>出来高</th><th>目標（共通）</th><th>目標差</th><th>達成率</th></tr></thead><tbody>${r.byTrade.map(t => `<tr><td class="nm">${esc(t.trade)}</td><td>${t.count}</td><td>${yen(t.cum)}</td><td>${num(t.ninku, 1)}</td><td>${yen(t.dekidaka)}</td><td>${t.target ? yen(t.target) : '—'}</td><td class="${t.diff < 0 ? 'neg' : ''}">${t.diff == null ? '' : (t.diff > 0 ? '+' : '') + yen(t.diff)}</td><td>${t.achieve == null ? '' : pct(t.achieve)}</td></tr>`).join('')}</tbody></table></div></div>` : '';
+  const tnote = r.mixed ? '目標なし（職種がまざっています）' : T ? `目標 ${yen(T)} 円/人工（${r.group ? '合算グループ「' + esc(r.group.name) + '」の目標' : r.solo ? 'この請書の目標' : esc(r.trades[0]) + 'の共通単価'}）` : '目標なし';
+  const multi = r.members.length > 1;
+  const head = `<tr><th class="nm">締め月</th>${multi ? r.members.map(k => `<th>${esc(kname(k))}<br>請求</th><th>${esc(kname(k))}<br>人工</th>`).join('') : ''}<th>合算請求</th><th>合算人工</th><th>月次出来高</th><th>累計請求</th><th>累計人工</th><th>累計出来高</th></tr>`;
+  const tr = x => `<tr><td class="nm">${C.ymSlash(x.ym)}</td>${multi ? x.per.map(p => `<td class="${p.amount < 0 ? 'neg' : ''}">${p.amount ? yen(p.amount) : ''}</td><td>${p.ninku ? num(p.ninku, 2) : ''}</td>`).join('') : ''}<td class="${x.G < 0 ? 'neg' : ''}">${yen(x.G)}</td><td>${num(x.H, 2)}</td><td class="${T && x.I != null ? (x.I >= T ? 'good' : 'bad') : ''}">${yen(x.I)}</td><td>${yen(x.L)}</td><td>${num(x.M, 2)}</td><td>${yen(x.N)}</td></tr>`;
+  // 期間のつながり（後継の請書）：請書ごとの工期の帯
+  const span = r.months.length ? `<div class="spans">${r.members.map(k => { const a = r.months.indexOf(k.from), b = r.months.indexOf(k.to), n = r.months.length; return `<div class="span"><span class="sl">${esc(kname(k))}</span><span class="st"><i style="left:${(Math.max(0, a) / n * 100).toFixed(1)}%;width:${(((b < 0 ? n - 1 : b) - Math.max(0, a) + 1) / n * 100).toFixed(1)}%"></i></span></div>`; }).join('')}<div class="span ax"><span class="sl"></span><span class="st"><em>${C.ymSlash(r.months[0])}</em><em>${C.ymSlash(r.months[r.months.length - 1])}</em></span></div></div>` : '';
+  const result = `<div class="card chartcard comboresult"><h3>${multi ? esc(r.members.map(kname).join('＋')) : esc(kname(r.members[0]))}<span class="muted small">　${tnote}</span></h3>${kpis}
+    ${G.trendHead(r.rows, T)}${r.rows.length ? G.trendSvg(r.rows, T, { title: '組み合わせの出来高推移' }) : '<p class="muted">まだ数字がありません。</p>'}
+    ${multi ? `<h4 class="muted small">請書の工期（つながり）</h4>${span}` : ''}</div>`;
+  const tbl = `<button class="toggle ${tblOn() ? 'on' : ''}" data-a="aggtbl">${tblOn() ? '☑' : '☐'} 表も表示（月ごとの数字）</button>${tblOn() ? `<div class="grid-wrap"><table class="grid dk combo-tbl"><thead>${head}</thead><tbody>${r.rows.map(tr).join('')}<tr class="tot"><td class="nm">合計</td>${multi ? r.members.map(k => { const c = C.cumThrough(d, k, null); return `<td>${yen(c.amount)}</td><td>${num(c.ninku, 2)}</td>`; }).join('') : ''}<td>${yen(r.cum)}</td><td>${num(r.ninku, 2)}</td><td>${yen(r.dekidaka)}</td><td></td><td></td><td></td></tr></tbody></table></div>` : ''}`;
+  // 合算グループとして保存（幹部だけ）
+  const sameG = (d.groups || []).filter(g => C.siteOfG(d, g) === sid && (() => { const m = C.groupMembers(d, g.id); return !m.length || m[0].trade === r.trades[0]; })());
+  const save = !isView() ? `<p class="muted small">この組み合わせを合算グループとして保存できるのは幹部（閲覧用）だけです。見るだけならこのままで使えます。</p>`
+    : r.mixed ? `<div class="card"><h3>合算グループとして保存</h3><p class="muted small">職種がまざった組み合わせはグループにできません（目標単価が職種で違うため）。</p></div>`
+    : `<div class="card savecombo"><h3>合算グループとして保存<span class="muted small">（幹部だけ）</span></h3>
+      <p class="muted small">保存すると集計・会議サマリーにこの組み合わせのタブが出ます。請書がなくなって新しい請書を入れたら、ここで前のグループに後の請書を足して「上書き」すると、推移が続けて見られます（請書の画面の「合算グループ」で足しても同じ）。</p>
+      <label class="f">保存先</label><select id="cgTo"><option value="">新しいグループを作る</option>${sameG.map(g => `<option value="${esc(g.id)}" ${r.group && r.group.id === g.id ? 'selected' : ''}>「${esc(g.name)}」を上書き（メンバーを入れかえ）</option>`).join('')}</select>
+      <label class="f">名前（新しく作るとき。上書きで空なら今の名前のまま）</label><input type="text" id="cgName" placeholder="例：${esc(r.trades[0])}（${esc(r.members.map(kname).join('＋'))}）">
+      <button class="primary wide" data-a="comboSave">保存</button></div>`;
+  return `${sitebar(sid)}<h2>出来高集計</h2>${aggTabs(bl, COMBO)}${picker}${tt}${result}${tbl}${save}`;
+}
+H.comboSave = () => {
+  if (!isView()) return;
+  const sid = curSite(), ids = comboSel(sid), gid = $('#cgTo').value || null, name = $('#cgName').value.trim();
+  let out; try { out = C.comboSaveOps(S.doc, ids, { gid, name, sid: sites().length ? sid : null, newId: 'g' + Date.now().toString(36) }); } catch (e) { return alert(e.message); }
+  const gname = g => ((S.doc.groups || []).find(x => x.id === g) || {}).name || g;
+  const msg = [gid ? `「${gname(gid)}」のメンバーを、えらんだ ${ids.length} 本に入れかえます。` : `新しい合算グループ「${name}」を作ります（目標は共通単価）。`,
+    ...out.moved.map(m => `・${kname(m.k)} は「${gname(m.from)}」から移ります`), ...out.removed.map(k => `・${kname(k)} はグループから外れて単独になります`)].join('\n');
+  if (!confirm(msg + '\n\nよろしいですか？')) return;
+  ui.blk = out.id; localStorage.setItem(KEY.aggTab, out.id); opMany(out.ops);
+};
+
 
 // ---- 会議サマリー ----
 function dataMonths() { const s = new Set(); for (const [key, r] of Object.entries(S.doc.records)) if ((r.amount && r.amount.v != null) || (r.ninku && r.ninku.v != null)) s.add(key.split('|')[1]); return [...s].sort(); }
@@ -590,11 +656,12 @@ async function startDemo(role, scope) {
 }
 function demoDoc() {
   const at = '2026-01-01T00:00:00.000Z', by = '体験';
-  const K = (id, no, short, trade, amount, group, taisho = true, hasNinku = true, siteId = 'ds1') => ({ id, no, name: `デモ請書${'ABCDEFGH'[no - 1]}（架空）`, short, trade, kubun: '架空', from: '2026-04', to: '2027-03', hasNinku, active: true, amount, start: '2026-04-01', end: '2027-03-31', taisho, group, note: '体験用の架空データ', siteId });
+  const K = (id, no, short, trade, amount, group, taisho = true, hasNinku = true, siteId = 'ds1') => ({ id, no, name: `デモ請書${'ABCDEFGHI'[no - 1]}（架空）`, short, trade, kubun: '架空', from: '2026-04', to: '2027-03', hasNinku, active: true, amount, start: '2026-04-01', end: '2027-03-31', taisho, group, note: '体験用の架空データ', siteId });
   const keisho = [K('d1', 1, 'デモ鳶A', '鳶', 12345678, 'gd-t'), K('d2', 2, 'デモ鳶B', '鳶', null, 'gd-t'), K('d3', 3, 'デモ鳶C', '鳶', 900000, null), K('d4', 4, 'デモ土工A', '土工', 9876543, 'gd-d'), K('d5', 5, 'デモ土工B', '土工', 400000, 'gd-d'), { ...K('d6', 6, 'デモ小口', '土工', null, null, false, false), kubun: '小口', kind: 'kogu', start: null, end: null },
-    K('d7', 7, 'デモ鳶D', '鳶', 5555555, 'gd-t2', true, true, 'ds2'), K('d8', 8, 'デモ鳶E', '鳶', 3333333, null, true, true, 'ds3')];
+    { ...K('d7', 7, 'デモ鳶D', '鳶', 5555555, 'gd-t2', true, true, 'ds2'), to: '2026-08', end: '2026-08-20' }, K('d8', 8, 'デモ鳶E', '鳶', 3333333, null, true, true, 'ds3'),
+    { ...K('d9', 9, 'デモ鳶D2（後継）', '鳶', 4444444, null, true, true, 'ds2'), name: 'デモ請書I（後継・架空）', from: '2026-09', start: '2026-08-21' }];
   const records = {}, put = (id, ym, a, n, note) => { records[`${id}|${ym}`] = { amount: { v: a, at, by }, ...(n != null ? { ninku: { v: n, at, by } } : {}), ...(note ? { note: { v: note, at, by } } : {}) }; };
-  ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'].forEach((ym, i) => { put('d1', ym, 1111111 + i * 111111, 22 + i, i === 0 ? '架空' : ''); put('d2', ym, 333333, 11); put('d4', ym, 777777 - i * 11111, 22); if (i % 2) put('d5', ym, 123456, 3); put('d6', ym, 111111, null); if (i > 2) put('d7', ym, 444444, 12 + i); });
+  ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'].forEach((ym, i) => { put('d1', ym, 1111111 + i * 111111, 22 + i, i === 0 ? '架空' : ''); put('d2', ym, 333333, 11); put('d4', ym, 777777 - i * 11111, 22); if (i % 2) put('d5', ym, 123456, 3); put('d6', ym, 111111, null); if (i >= 1 && i <= 4) put('d7', ym, 444444, 12 + i); if (i >= 5) put('d9', ym, 555555 + (i - 5) * 66666, 14); });
   put('d3', '2026-07', 999999, 33); put('d8', '2026-05', 222222, 7);
   const sites = [{ id: 'ds1', name: 'デモ現場A（架空）', roumuIds: [], done: false }, { id: 'ds2', name: 'デモ現場B（架空）', roumuIds: [], done: false }, { id: 'ds3', name: 'デモ現場C（架空・竣工）', roumuIds: [], done: true }];
   return { schema: C.SCHEMA, merged: [], updatedAt: at, updatedBy: by, settings: { cycleDay: 21, cycle: '毎月21日～翌月20日締め（体験）', period: { from: '2026-04', to: '2027-03' }, sites }, keisho,
