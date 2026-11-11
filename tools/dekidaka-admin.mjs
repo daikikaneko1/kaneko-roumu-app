@@ -6,13 +6,14 @@
 //  node tools/dekidaka-admin.mjs migrate <excel.json> <閲覧用合言葉> [commit]                 … Excel のデータを初回登録（state.json が無いときだけ）
 //  node tools/dekidaka-admin.mjs rekey   <閲覧用合言葉> [commit]                              … 未取り込みの入力を取り込み、今の範囲で暗号化し直す
 //  node tools/dekidaka-admin.mjs sites   <閲覧用合言葉> <現場名> <労務の現場ID,…|-> [commit] [--common 鳶=N,土工=N] … 現場ごとに分ける移行（1回だけ）：現場を1つ作り全部の請書・合算グループをそこへ、共通の目標単価。数字が前後で同じか確かめる
+//  node tools/dekidaka-admin.mjs kogu    <閲覧用合言葉> [commit]                              … 工事区分「小口」の請書に種別「小口（単月請求）」をつける（1回だけ）。数字が前後で同じか確かめる
 //  node tools/dekidaka-admin.mjs check   <入力用合言葉> <閲覧用合言葉>                         … 復号の確認（件数だけ表示）
 //  <token> などはファイルのパス
 import fs from 'fs';
 import { encryptSecret, decryptSecret } from '../crypto.js';
 import { generateRoleKey, importPriv } from '../dk-crypto.js';
 import { GitHubBackend, DekidakaStore } from '../dk-store.js';
-import { applyOps, readableDatasets, overlayEntries, sitesMigrationOps, figures } from '../dk-core.js';
+import { applyOps, readableDatasets, overlayEntries, sitesMigrationOps, koguMigrationOps, figures } from '../dk-core.js';
 import { ConflictError } from '../store.js';
 import { buildState } from './dekidaka-build.mjs';
 const CFG = new URL('../config.js', import.meta.url).pathname;
@@ -93,6 +94,26 @@ if (cmd === 'keys') {
   }
   const { doc: after } = await st.load(); const pe = await st.pendingEntries(after.merged);
   console.log(`保存後：現場 ${(after.settings.sites || []).length}件・siteId のある請書 ${after.keisho.filter(k => k.siteId).length}/${after.keisho.length}・グループ ${after.groups.filter(g => g.siteId).length}/${after.groups.length}・未取り込みの入力 ${pe.entries.length}件`);
+} else if (cmd === 'kogu') {
+  const [viewF, commit] = a; const u = await unlock(cfg, 'view', viewF); const st = storeFor(cfg, 'view', u);
+  const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const raw = await st.backend.getFile(st.statePath); if (!raw) throw new Error('state.json がありません');
+    const bdir = new URL('../../backup/', import.meta.url).pathname; fs.mkdirSync(bdir, { recursive: true });
+    const bf = `${bdir}dekidaka-state-${new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)}-${raw.sha.slice(0, 7)}.json`; fs.writeFileSync(bf, raw.text); // 暗号文のまま
+    const doc = await st.decryptState(JSON.parse(raw.text)); const { entries } = await st.pendingEntries(doc.merged);
+    const ops = koguMigrationOps(doc); const next = applyOps(doc, ops);
+    const okBase = same(figures(doc), figures(next)), okOver = same(figures(overlayEntries(doc, entries)), figures(overlayEntries(next, entries)));
+    console.log(`小口にする請書 ${ops.length}件（${ops.map(o => o.id).join(',')}）・未取り込みの入力 ${entries.length}件。バックアップ（暗号文）${bf.split('/').pop()}`);
+    console.log(`数字の一致：保存済み ${okBase ? 'OK' : 'NG'}／入力を重ねた後 ${okOver ? 'OK' : 'NG'}`);
+    if (!okBase || !okOver) throw new Error('数字が変わるので中止');
+    if (!ops.length) { console.log('変更なし'); break; }
+    if (commit !== 'commit') { console.log('dry run'); process.exit(0); }
+    next.updatedAt = new Date().toISOString(); next.updatedBy = '管理者（小口の種別）';
+    try { console.log('saved sha', await st.save(next, raw.sha, `出来高：小口の請書に種別「小口（単月請求）」（${ops.length}件）`)); break; }
+    catch (e) { if (e instanceof ConflictError && attempt < 4) { console.log('同時に更新あり → 取り直してやり直し'); continue; } throw e; }
+  }
+  const { doc: after } = await st.load(); console.log('保存後：小口', after.keisho.filter(k => k.kind === 'kogu').map(k => k.id).join(','));
 } else if (cmd === 'check') {
   const [inF, viewF] = a;
   for (const [role, f] of [['view', viewF], ['input', inF]]) {

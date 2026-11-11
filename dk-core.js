@@ -13,7 +13,7 @@ export const recipientRoles = (ds, scope) => ['view', ...(Number(scope) >= DATAS
 export const readableDatasets = (role, scope) => Object.keys(DATASETS).filter(ds => recipientRoles(ds, scope).includes(role));
 export const FIELDS = { amount: 'claims', ninku: 'labor', note: 'labor' };
 
-const NAME_KEYS = ['id', 'no', 'name', 'short', 'trade', 'kubun', 'from', 'to', 'hasNinku', 'active', 'siteId'];
+const NAME_KEYS = ['id', 'no', 'name', 'short', 'trade', 'kubun', 'from', 'to', 'hasNinku', 'active', 'siteId', 'kind'];
 const MASTER_KEYS = ['id', 'sheet', 'amount', 'start', 'end', 'taisho', 'group', 'target', 'targetNote', 'note'];
 const pick = (o, ks) => Object.fromEntries(ks.filter(k => o[k] !== undefined).map(k => [k, o[k]]));
 
@@ -129,6 +129,10 @@ export function groupSeries(doc, members, target, months) {
   tot.G = rows.reduce((s, r) => s + r.G, 0); tot.H = rows.reduce((s, r) => s + r.H, 0); tot.I = tot.H === 0 ? null : tot.G / tot.H;
   return { rows, tot };
 }
+// ---------- 種別：通常（請書。請書金額から消化）／小口（請書なし。月々の単月請求が積み上がる）----------
+// kind が無い古いデータは工事区分「小口」を小口とみなす（古い画面で保存し直されても崩れない）
+export const isKogu = k => (k.kind ? k.kind === 'kogu' : k.kubun === '小口');
+export const KINDS = { normal: '通常（請書）', kogu: '小口（単月請求）' };
 // ---------- 現場（settings.sites。名前だけなので入力用も読める）----------
 // 1現場に請書がいくつでも。請書・合算グループの siteId が空なら最初の現場（古い画面で保存し直されても崩れない）
 export const sitesOf = doc => (doc.settings && doc.settings.sites) || [];
@@ -145,14 +149,14 @@ export function effTarget(doc, x, trade) {
 // 集計ブロック：合算グループ（groups）＋単独管理の請書（出来高対象でグループなし）。sid で現場をしぼる
 export function blocks(doc, sid = null) {
   const out = [];
-  for (const g of doc.groups || []) { if (sid != null && siteOfG(doc, g) !== sid) continue; const members = groupMembers(doc, g.id).filter(k => k.taisho !== false && (sid == null || siteOfK(doc, k) === sid)); if (members.length) out.push({ type: 'group', id: g.id, name: g.name, target: effTarget(doc, g, members[0].trade), trade: members[0].trade, members, no: members[0].no, g }); }
-  for (const k of doc.keisho) if (k.active !== false && k.taisho !== false && !k.group && (sid == null || siteOfK(doc, k) === sid)) out.push({ type: 'single', id: k.id, name: k.short || k.name, target: effTarget(doc, k, k.trade), trade: k.trade, members: [k], no: k.no });
+  for (const g of doc.groups || []) { if (sid != null && siteOfG(doc, g) !== sid) continue; const members = groupMembers(doc, g.id).filter(k => k.taisho !== false && !isKogu(k) && (sid == null || siteOfK(doc, k) === sid)); if (members.length) out.push({ type: 'group', id: g.id, name: g.name, target: effTarget(doc, g, members[0].trade), trade: members[0].trade, members, no: members[0].no, g }); }
+  for (const k of doc.keisho) if (k.active !== false && k.taisho !== false && !isKogu(k) && !k.group && (sid == null || siteOfK(doc, k) === sid)) out.push({ type: 'single', id: k.id, name: k.short || k.name, target: effTarget(doc, k, k.trade), trade: k.trade, members: [k], no: k.no });
   return out.sort((a, b) => a.no - b.no);
 }
 // 会議サマリー（報告月 R までの累計。Excel は最終行の累計＝データのある最新月までと同じ）。sid で現場をしぼる
 export function summary(doc, R, sid = null) {
   const rate = (c, a) => (a == null || a === 0 ? null : c / a);
-  const item = k => { const c = cumThrough(doc, k, R); return { k, amount: k.amount ?? null, cum: c.amount, rate: rate(c.amount, k.amount ?? null), cumNinku: c.ninku }; };
+  const item = k => { const c = cumThrough(doc, k, R); return { k, kogu: isKogu(k), amount: isKogu(k) ? null : k.amount ?? null, cum: c.amount, rate: rate(c.amount, k.amount ?? null), cumNinku: c.ninku }; };
   const secs = blocks(doc, sid).map(b => {
     const members = b.members.map(item);
     const known = members.filter(m => m.amount != null);
@@ -172,8 +176,10 @@ export function summary(doc, R, sid = null) {
 export function siteResult(doc, sid, R = null) {
   const sm = summary(doc, R, sid), ks = siteKeisho(doc, sid);
   const cumNinku = ks.filter(k => k.taisho !== false).reduce((s, k) => s + cumThrough(doc, k, R).ninku, 0);
-  const amount = ks.some(k => k.amount != null) ? ks.reduce((s, k) => s + n0(k.amount), 0) : null;
-  return { sid, count: ks.length, amount, cum: sm.totals.total, cumNinku, secs: sm.secs, summary: sm };
+  const nk = ks.filter(k => !isKogu(k)), kg = ks.filter(isKogu);
+  const amount = nk.some(k => k.amount != null) ? nk.reduce((s, k) => s + n0(k.amount), 0) : null;
+  const kogu = kg.reduce((s, k) => s + cumThrough(doc, k, R).amount, 0);
+  return { sid, count: nk.length, koguCount: kg.length, amount, cum: sm.totals.total, kogu, keishoCum: sm.totals.total - kogu, cumNinku, secs: sm.secs, summary: sm };
 }
 // 会社合計：現場の合計＋職種ごとに「目標のあるブロック」を足した出来高（目標は共通単価、無ければブロックの目標）
 export function companyResult(doc, sids, R = null) {
@@ -182,15 +188,15 @@ export function companyResult(doc, sids, R = null) {
   const byTrade = {};
   for (const r of rs) for (const b of r.secs) { if (!b.target) continue; const t = byTrade[b.trade] || (byTrade[b.trade] = { trade: b.trade, cum: 0, ninku: 0, targets: new Set() }); t.cum += b.sumCum; t.ninku += b.cumNinku; t.targets.add(b.target); }
   const trades = Object.values(byTrade).map(t => { const target = doc.common && doc.common[t.trade] ? n0(doc.common[t.trade]) : t.targets.size === 1 ? [...t.targets][0] : null; const dk = t.ninku === 0 ? null : t.cum / t.ninku; return { trade: t.trade, cum: t.cum, ninku: t.ninku, dekidaka: dk, target, diff: dk == null || !target ? null : dk - target, achieve: dk == null || !target ? null : dk / target }; });
-  return { sites: rs, cum, cumNinku, trades };
+  return { sites: rs, cum, cumNinku, kogu: rs.reduce((s, r) => s + r.kogu, 0), trades };
 }
 
 // ---------- CSV ----------
 const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 export const toCSV = rows => '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 export function csvMonthly(doc) {
-  const rows = [['現場', '請書No', '請書', '締め月', '当月請求額(税抜)', '当月投入人工', '累計請求額', '累計人工', '備考']];
-  for (const k of [...doc.keisho].sort((a, b) => a.no - b.no)) for (const r of keishoSeries(doc, k)) rows.push([(siteById(doc, siteOfK(doc, k)) || {}).name || '', k.no, k.short || k.name, ymSlash(r.ym), r.amount, canRead(doc, 'labor') ? r.ninku : '', r.cumAmount, canRead(doc, 'labor') ? r.cumNinku : '', canRead(doc, 'labor') ? r.note : '']);
+  const rows = [['現場', '請書No', '請書', '種別', '締め月', '当月請求額(税抜)', '当月投入人工', '累計請求額', '累計人工', '備考']];
+  for (const k of [...doc.keisho].sort((a, b) => a.no - b.no)) for (const r of keishoSeries(doc, k)) rows.push([(siteById(doc, siteOfK(doc, k)) || {}).name || '', k.no, k.short || k.name, isKogu(k) ? '小口' : '請書', ymSlash(r.ym), r.amount, canRead(doc, 'labor') ? r.ninku : '', r.cumAmount, canRead(doc, 'labor') ? r.cumNinku : '', canRead(doc, 'labor') ? r.note : '']);
   return toCSV(rows);
 }
 export function csvSummary(doc, R, sid = null) {
@@ -200,7 +206,7 @@ export function csvSummary(doc, R, sid = null) {
     rows.push([b.name, b.members.length > 1 ? '合算' : '', b.sumAmount, b.sumCum, b.rate, b.cumNinku, b.dekidaka, b.target, b.diff, b.eval]);
   }
   rows.push([]); rows.push(['総請求額集計', '請書', '累計請求額', '構成比']);
-  for (const t of s.totals.trades) { for (const i of t.items) rows.push(['', i.k.short || i.k.name, i.cum, i.share]); rows.push(['', t.trade + ' 合計', t.sum, t.share]); }
+  for (const t of s.totals.trades) { for (const i of t.items) rows.push(['', (i.k.short || i.k.name) + (i.kogu ? '（小口）' : ''), i.cum, i.share]); rows.push(['', t.trade + ' 合計', t.sum, t.share]); }
   rows.push(['', '総合計', s.totals.total, s.totals.share]);
   return toCSV(rows);
 }
@@ -225,4 +231,9 @@ export function figures(doc, R = latestDataMonth(doc)) {
   const secs = sm.secs.map(b => ({ id: b.id, members: b.members.map(k => k.id), sumAmount: b.sumAmount, sumCum: b.sumCum, cumNinku: b.cumNinku, dekidaka: b.dekidaka, target: b.target, diff: b.diff, eval: b.eval }));
   const keisho = doc.keisho.map(k => ({ id: k.id, amount: k.amount ?? null, group: k.group || null, taisho: k.taisho, active: k.active, from: k.from, to: k.to }));
   return { R, rec, secs, total: sm.totals.total, trades: sm.totals.trades.map(t => [t.trade, t.sum]), keisho };
+}
+
+// 小口の種別をつける移行（1回だけ）：工事区分「小口」で種別が無い請書に kind:'kogu'。数字は動かない
+export function koguMigrationOps(doc) {
+  return doc.keisho.filter(k => !k.kind && k.kubun === '小口').map(k => ({ type: 'keisho', id: k.id, patch: { kind: 'kogu' } }));
 }
