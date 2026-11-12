@@ -11,13 +11,15 @@ export function balance(amount, cum) {
   const lv = cum > amount ? 'over' : remPct < 0.1 ? 'red' : remPct < 0.2 ? 'yellow' : 'ok';
   return { set: true, used, rem, remPct, lv };
 }
-export function balanceBar(amount, cum, { mini = false, name = '' } = {}) {
+const tradeCls = t => (t === '土工' ? 't-doko' : t === '鳶' ? 't-tobi' : '');
+export function balanceBar(amount, cum, { mini = false, name = '', trade = '' } = {}) {
+  const tc = tradeCls(trade);
   const b = balance(amount, cum);
-  if (!b.set) return `<div class="bal ${mini ? 'mini' : ''}">${name ? `<span class="bn">${name}</span>` : ''}<span class="unset">未設定</span></div>`;
+  if (!b.set) return `<div class="bal ${mini ? 'mini' : ''} ${tc}">${name ? `<span class="bn">${name}</span>` : ''}<span class="unset">未設定</span></div>`;
   const w = Math.max(0, Math.min(100, b.used * 100));
   const label = b.lv === 'over' ? `超過 ${yen(-b.rem)}円（${(-b.remPct * 100).toFixed(1)}%）` : `残額 ${yen(b.rem)}円（残 ${(b.remPct * 100).toFixed(1)}%）`;
   const short = b.lv === 'over' ? `超過 ${(-b.remPct * 100).toFixed(0)}%` : `残 ${(b.remPct * 100).toFixed(0)}%`;
-  return `<div class="bal ${mini ? 'mini' : ''} lv-${b.lv}" data-lv="${b.lv}">${name ? `<span class="bn">${name}</span>` : ''}<span class="track"><span class="used" style="width:${w.toFixed(1)}%"></span></span><span class="bl">${mini ? short : label}</span></div>`;
+  return `<div class="bal ${mini ? 'mini' : ''} ${tc} lv-${b.lv}" data-lv="${b.lv}" data-trade="${trade || ''}">${name ? `<span class="bn">${name}</span>` : ''}<span class="track"><span class="used" style="width:${w.toFixed(1)}%"></span></span><span class="bl">${mini ? short : label}</span></div>`;
 }
 
 // ---- 2) 出来高推移：月次出来高（円/人工）の線＋累計の線、目標の点線。点は目標以上=緑・未満=赤。前月比 ↑↓ ----
@@ -28,7 +30,7 @@ export function trend(rows, target) {
   const last = withV[withV.length - 1], prev = withV[withV.length - 2];
   return { last, prev, diff: last && prev ? last.v - prev.v : null, dir: last && prev ? (last.v > prev.v ? 'up' : last.v < prev.v ? 'down' : 'flat') : null, target };
 }
-export function trendSvg(rows, target, { h = 230, title = '' } = {}) {
+export function trendSvg(rows, target, { h = 230, title = '', trade = '' } = {}) {
   const W = 680, H = h, L = 58, R = 14, T = 18, B = 34;
   const vals = rows.flatMap(r => [r.I, r.N]).filter(v => v != null);
   if (!vals.length) return '<p class="muted small">グラフにする月がまだありません。</p>';
@@ -40,8 +42,9 @@ export function trendSvg(rows, target, { h = 230, title = '' } = {}) {
   const path = key => { let d = '', pen = false; rows.forEach((r, i) => { const v = r[key]; if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true; }); return d; };
   const tl = target ? `<line x1="${L}" x2="${W - R}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}" class="tg"/><text x="${W - R}" y="${(y(target) - 5).toFixed(1)}" class="tgl">目標 ${yen(target)}</text>` : '';
   const dots = rows.map((r, i) => (r.I == null ? '' : `<circle cx="${x(i).toFixed(1)}" cy="${y(r.I).toFixed(1)}" r="4.5" class="pt ${target ? (r.I >= target ? 'good' : 'bad') : 'nt'}"><title>${r.ym.replace('-', '/')} ${yen(r.I)} 円/人工</title></circle>`)).join('');
-  return `<svg class="chart trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="${title || '出来高推移'}">${grid}${xl}${tl}<path d="${path('N')}" class="cum"/><path d="${path('I')}" class="mon"/>${dots}</svg>
-   <div class="legend"><span class="lg mon">月次出来高</span><span class="lg cum">累計出来高</span>${target ? '<span class="lg tg">目標（共通単価）</span><span class="lg good">● 目標以上</span><span class="lg bad">● 目標未満</span>' : '<span class="muted">目標なし</span>'}</div>`;
+  const tc = tradeCls(trade);
+  return `<svg class="chart trend ${tc}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${title || '出来高推移'}" data-trade="${trade || ''}">${grid}${xl}${tl}<path d="${path('N')}" class="cum"/><path d="${path('I')}" class="mon"/>${dots}</svg>
+   <div class="legend ${tc}"><span class="lg mon">月次出来高</span><span class="lg cum">累計出来高</span>${target ? '<span class="lg tg">目標（共通単価）</span><span class="lg good">● 目標以上</span><span class="lg bad">● 目標未満</span>' : '<span class="muted">目標なし</span>'}</div>`;
 }
 export function trendHead(rows, target) {
   const t = trend(rows, target); if (!t.last) return '';
@@ -50,7 +53,7 @@ export function trendHead(rows, target) {
 }
 
 // ---- 3) 小口：月々の請求＝棒、累計（積み上がり）＝線。残りはない ----
-export function koguSvg(series, { h = 220 } = {}) {
+export function koguSvg(series, { h = 220, trade = '' } = {}) {
   const rows = series; if (!rows.some(r => r.amount != null)) return '<p class="muted small">まだ請求がありません。</p>';
   const W = 680, H = h, L = 54, R = 58, T = 16, B = 34, n = rows.length;
   const mMax = niceMax(Math.max(1, ...rows.map(r => r.amount || 0)) * 1.05), cMax = niceMax(Math.max(1, ...rows.map(r => r.cumAmount)) * 1.05);
@@ -61,6 +64,7 @@ export function koguSvg(series, { h = 220 } = {}) {
   const xl = rows.map((r, i) => (i % step === 0 || i === n - 1 ? `<text x="${x(i).toFixed(1)}" y="${H - 12}" class="xa">${ym(r.ym)}</text>` : '')).join('');
   const bars = rows.map((r, i) => (r.amount ? `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${yM(r.amount).toFixed(1)}" width="${bw.toFixed(1)}" height="${(yM(0) - yM(r.amount)).toFixed(1)}" class="kb"><title>${r.ym.replace('-', '/')} ${yen(r.amount)} 円</title></rect>` : '')).join('');
   const d = rows.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${yC(r.cumAmount).toFixed(1)}`).join('');
-  return `<svg class="chart kogu" viewBox="0 0 ${W} ${H}" role="img" aria-label="小口の請求と累計">${grid}${xl}${bars}<path d="${d}" class="cum"/></svg>
-   <div class="legend"><span class="lg kbar">月々の請求（左の目盛り）</span><span class="lg cum">累計（積み上がり・右の目盛り）</span></div>`;
+  const tc = tradeCls(trade);
+  return `<svg class="chart kogu ${tc}" viewBox="0 0 ${W} ${H}" role="img" aria-label="小口の請求と累計" data-trade="${trade || ''}">${grid}${xl}${bars}<path d="${d}" class="cum"/></svg>
+   <div class="legend ${tc}"><span class="lg kbar">月々の請求（左の目盛り）</span><span class="lg cum">累計（積み上がり・右の目盛り）</span></div>`;
 }
