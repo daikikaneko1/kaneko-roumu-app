@@ -14,6 +14,7 @@ button.primary,.btn.primary{background:var(--blue);color:#fff;border-color:var(-
 button.danger{background:#fff;color:#c62828;border-color:#c62828}
 button.wide{width:100%;margin:6px 0}
 button:active{filter:brightness(.9)}
+button:disabled,.btn:disabled{opacity:.4;cursor:default;pointer-events:none}
 .tabs{display:flex;gap:6px;margin:8px 0;overflow-x:auto}.tabs button{flex:1 0 auto;min-width:72px}
 .tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700}
 .tabs.doko button.on{background:var(--doko);border-color:var(--doko)}.tabs.tobi button.on{background:var(--tobi);border-color:var(--tobi)}
