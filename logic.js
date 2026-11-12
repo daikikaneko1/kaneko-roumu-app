@@ -39,6 +39,39 @@ export function fyMonths(fy) { const a = []; for (let i = 0; i < 12; i++) { cons
 export function fyOf(ym) { const { y, m } = parseYm(ym); return m >= 4 ? y : y - 1; }
 export function allMonths(doc) { const s = doc.settings; let a = []; for (let i = 0; i < s.years; i++) a = a.concat(fyMonths(s.firstFY + i)); return a; }
 export function monthLabel(ym) { return `${parseYm(ym).m}月`; }
+export function addMonths(ym, n) {
+  const { y, m } = parseYm(ym);
+  const t = y * 12 + (m - 1) + n;
+  const ny = Math.floor(t / 12);
+  const nm = ((t % 12) + 12) % 12;
+  return ymStr(ny, nm + 1);
+}
+
+// 日付（YYYY-MM-DD）。未設定なら日本時間の今日。テストは setToday() で固定できる
+let TODAY = null;
+export function setToday(d) { TODAY = d || null; }
+export function todayStr() { return TODAY || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
+export function todayYm() { return todayStr().slice(0, 7); }
+
+// 日別の開始月（既定＝日別を始めた年度の4月）。settings.dailyFrom があればそれを使う
+export function dailyFrom(doc) {
+  if (doc.settings.dailyFrom) return doc.settings.dailyFrom;
+  return fyMonths(doc.settings.dailyFY ?? doc.settings.firstFY)[0];
+}
+// 日別の終わり＝今月から11か月先（今月末までで12か月）、5カ年の最終月で打切り
+export function dailyHorizon(doc, nowYm = todayYm()) {
+  const horizon = addMonths(nowYm, 11);
+  const all = allMonths(doc);
+  const last = all.length ? all[all.length - 1] : horizon;
+  return horizon < last ? horizon : last;
+}
+export function dailyMonths(doc, nowYm = todayYm()) {
+  const from = dailyFrom(doc), to = dailyHorizon(doc, nowYm);
+  return allMonths(doc).filter(ym => ym >= from && ym <= to);
+}
+export function fyHasDaily(doc, fy, nowYm = todayYm()) {
+  return fyMonths(fy).some(ym => inWindow(doc, ym, nowYm));
+}
 export function dow(date) { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); }
 export function datesOfMonth(ym) { const { y, m } = parseYm(ym); const n = daysInMonth(ym); const a = []; for (let d = 1; d <= n; d++) a.push(dateStr(y, m, d)); return a; }
 export const round2 = v => Math.round(v * 100) / 100;
@@ -75,13 +108,31 @@ export function workingDays(doc, site, ym) { return workingDates(doc, site, ym).
 // 現場の曜日設定：{ '0': 'work', '3': 'off' } の形（無い曜日は会社カレンダーどおり）
 export function cleanWeek(w) { const o = {}; for (const [k, v] of Object.entries(w || {})) if (/^[0-6]$/.test(k) && (v === 'work' || v === 'off')) o[k] = v; return Object.keys(o).length ? o : null; }
 
-// ---- 1カ年(日別)ウィンドウ ----
-export function inWindow(doc, ym) { return fyOf(ym) === doc.settings.dailyFY; }
+// ---- 日別ウィンドウ（開始月〜今月から12か月先まで。年をまたいでも YYYY-MM で区別） ----
+export function inWindow(doc, ym, nowYm = todayYm()) {
+  return ym >= dailyFrom(doc) && ym <= dailyHorizon(doc, nowYm);
+}
 
 // 月の値：ウィンドウ内は日別が正（平均＝人工÷稼働日）、外は月の値そのもの
+// 日別配列。まだ日に展開していなくても、ウィンドウ内で月の値があれば表示用に割り振る（保存はしない）
+export function dailyOf(doc, site, ym) {
+  const arr = (site.daily && site.daily[ym]) || [];
+  if (arr.some(v => v) || (site.editedMonths && site.editedMonths[ym])) return arr;
+  const v = (site.monthly && site.monthly[ym]) || 0;
+  if (v && inWindow(doc, ym)) return spreadMonth(doc, site, ym, v);
+  return arr;
+}
 export function monthInfo(doc, site, ym) {
   if (inWindow(doc, ym)) {
-    const arr = (site.daily && site.daily[ym]) || [];
+    const stored = (site.daily && site.daily[ym]) || [];
+    const hasDaily = stored.some(v => v) || !!(site.editedMonths && site.editedMonths[ym]);
+    // まだ日別が無い月は、既存の月の値をそのまま使う（割り振りで数字が変わらないようにする）
+    if (!hasDaily) {
+      const value = (site.monthly && site.monthly[ym]) || 0;
+      const wd = workingDays(doc, site, ym);
+      return { daily: true, ninku: value * wd, wd, calWd: wd, offWork: 0, value, edited: false, unspread: !!value };
+    }
+    const arr = stored;
     const ninku = arr.reduce((a, b) => a + (Number(b) || 0), 0);
     // 稼働日数＝この現場の稼働日（会社カレンダー＋現場の曜日・日ごとの設定）＋休みの日に人数が入っている日
     let calWd = 0, offWork = 0;
@@ -118,6 +169,17 @@ const SITE_FIELDS = ['trade', 'category', 'division', 'kubun', 'prevKubun', 'nam
 // 単価（円/人工）：正の数だけ有効。それ以外（空・0・文字）は「未設定」= null
 export function cleanPrice(v) { if (v === '' || v == null) return null; const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? n : null; }
 function cleanArr(arr) { return arr.some(v => v) ? arr : undefined; }
+// 日の入力の前に、月の値を日に展開しておく（ゼロ埋めして月の値を消してしまわないため）
+export function ensureSiteDaily(doc, site, ym) {
+  if (!inWindow(doc, ym)) return false;
+  site.daily = site.daily || {};
+  if ((site.daily[ym] || []).some(v => v) || (site.editedMonths && site.editedMonths[ym] && site.daily[ym])) return false;
+  const v = (site.monthly && site.monthly[ym]) || 0;
+  if (!v) return false;
+  const c = cleanArr(spreadMonth(doc, site, ym, v));
+  if (c) { site.daily[ym] = c; return true; }
+  return false;
+}
 
 export function applyOp(doc, op) {
   const site = op.id ? doc.sites.find(s => s.id === op.id) : null;
@@ -138,6 +200,8 @@ export function applyOp(doc, op) {
       site.daily = site.daily || {}; site.editedMonths = site.editedMonths || {};
       for (const d of dates) {
         const ym = d.slice(0, 7);
+        if (!inWindow(doc, ym)) continue;
+        ensureSiteDaily(doc, site, ym);
         const arr = (site.daily[ym] || new Array(daysInMonth(ym)).fill(0)).slice();
         arr[Number(d.slice(8)) - 1] = Math.max(0, Math.round(Number(op.v) || 0));
         const c = cleanArr(arr); if (c) site.daily[ym] = c; else delete site.daily[ym];
@@ -179,16 +243,12 @@ export function applyOp(doc, op) {
 }
 export function applyOps(doc, ops) { const d = structuredClone(doc); for (const op of ops) applyOp(d, op); return d; }
 
-// 1カ年ウィンドウを新しい年度へ：出ていく年度は月平均を月の値として固定、入ってくる年度は月の値を日に展開
+// 互換：指定年度の月の値を日に展開する。過去の日別は消さない・固定しない（日別の開始を前にずらすときだけ dailyFY を更新）
 export function rollWindow(doc, fy) {
   const old = doc.settings.dailyFY;
-  if (fy === old) return doc;
+  if (fy < old) doc.settings.dailyFY = fy;
   for (const s of doc.sites) {
     s.monthly = s.monthly || {}; s.daily = s.daily || {};
-    for (const ym of fyMonths(old)) { const v = round2(monthInfo(doc, s, ym).value); if (v) s.monthly[ym] = v; else delete s.monthly[ym]; }
-  }
-  doc.settings.dailyFY = fy;
-  for (const s of doc.sites) {
     for (const ym of fyMonths(fy)) {
       const has = s.daily[ym] && s.daily[ym].some(v => v);
       if (!has && s.monthly[ym]) { const c = cleanArr(spreadMonth(doc, s, ym, s.monthly[ym])); if (c) s.daily[ym] = c; }
@@ -262,7 +322,11 @@ export function dayTotals(doc, date, opt = {}) {
   const ym = date.slice(0, 7), i = Number(date.slice(8)) - 1;
   const r = { doko: 0, tobi: 0 };
   if (!inWindow(doc, ym)) return r;
-  for (const s of doc.sites) { if (!shown(s, opt)) continue; const a = s.daily && s.daily[ym]; if (a && r[s.trade] !== undefined) r[s.trade] += Number(a[i]) || 0; }
+  for (const s of doc.sites) {
+    if (!shown(s, opt)) continue;
+    const a = dailyOf(doc, s, ym);
+    if (a && r[s.trade] !== undefined) r[s.trade] += Number(a[i]) || 0;
+  }
   return r;
 }
 
@@ -293,12 +357,12 @@ export function monthlyCsv(doc, opt = {}) {
   return '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
 export function dailyCsv(doc, opt = {}) {
-  const fy = doc.settings.dailyFY; let dates = [];
-  for (const ym of fyMonths(fy)) dates = dates.concat(datesOfMonth(ym));
-  const rows = [['職種', '新築/改修', '工事部', '区分', '工事名', ...dates.map(d => d.slice(5).replace('-', '/'))]];
+  let dates = [];
+  for (const ym of dailyMonths(doc)) dates = dates.concat(datesOfMonth(ym));
+  const rows = [['職種', '新築/改修', '工事部', '区分', '工事名', ...dates.map(d => d.replace(/-/g, '/'))]];
   rows.push(['', '', '', '', '会社カレンダー', ...dates.map(d => (companyDay(doc, d).work ? '' : '休'))]);
   for (const s of sortedSites(doc, null, opt)) {
-    rows.push([TRADES[s.trade], s.category, DIVISIONS[divisionOf(s)], s.kubun, s.name, ...dates.map(d => { const a = s.daily && s.daily[d.slice(0, 7)]; const v = a ? a[Number(d.slice(8)) - 1] : 0; return v || ''; })]);
+    rows.push([TRADES[s.trade], s.category, DIVISIONS[divisionOf(s)], s.kubun, s.name, ...dates.map(d => { const a = dailyOf(doc, s, d.slice(0, 7)); const v = a ? a[Number(d.slice(8)) - 1] : 0; return v || ''; })]);
   }
   for (const t of Object.keys(TRADES)) rows.push([TRADES[t], '', '', '', `${TRADES[t]}合計`, ...dates.map(d => dayTotals(doc, d, opt)[t] || '')]);
   return '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';

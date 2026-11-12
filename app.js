@@ -9,13 +9,14 @@ const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', sh
 const OPT = () => ({ includeDone: localStorage.getItem(KEY.showDone) === '1' });
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 let sync = null, saveTimer = null;
-const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); // 日本時間
 const ui = { trade: 'doko', fy: null, sumMode: 'month', sumFY: null, sumYm: null, gridFY: null, calYm: null, sel: null, range: false, multi: false, ms: [], mFrom: null, mTo: null, r1: null, r2: null };
 
 // ---------- 起動 ----------
 async function boot() {
   L.setHolidays(await (await fetch('holidays.json')).json());
   const params = new URLSearchParams(location.search);
+  const td = params.get('today');
+  if (td && /^\d{4}-\d{2}-\d{2}$/.test(td)) L.setToday(td);
   if (location.hash.startsWith('#k=')) { // URL の # 以降に合言葉（サーバーには送られない）
     localStorage.setItem(KEY.pass, decodeURIComponent(location.hash.slice(3)));
     history.replaceState(null, '', location.pathname + location.search + '#list');
@@ -57,8 +58,10 @@ async function start(store, demo = false) {
   }
   try { const p = JSON.parse(localStorage.getItem(KEY.pending) || '[]'); if (!demo && p.length) { sync.pending = p; scheduleSave(); } } catch { }
   const s = sync.doc.settings;
-  ui.fy = ui.sumFY = ui.gridFY = s.dailyFY;
-  ui.calYm = ui.sumYm = L.fyMonths(s.dailyFY).includes(today.slice(0, 7)) ? today.slice(0, 7) : L.fyMonths(s.dailyFY)[0];
+  const ym0 = L.todayYm(), all0 = L.allMonths(sync.doc), dm0 = L.dailyMonths(sync.doc);
+  ui.fy = ui.sumFY = ui.gridFY = L.fyOf(all0.includes(ym0) ? ym0 : (s.dailyFY || s.firstFY));
+  ui.calYm = all0.includes(ym0) ? ym0 : all0[0];
+  ui.sumYm = dm0.includes(ym0) ? ym0 : (dm0[0] || all0[0]);
   $('#nav').hidden = false;
   window.addEventListener('hashchange', render);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
@@ -105,7 +108,7 @@ function bind() { ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.
   enter('#mv', () => { const b = document.querySelector('[data-a^="mfill|"]'); if (b) b.click(); });
 }
 const tradeTabs = () => `<div class="tabs ${ui.trade}">${Object.entries(L.TRADES).map(([k, v]) => `<button data-a="trade|${k}" class="${ui.trade === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
-const fyTabs = (cur, act) => `<div class="tabs">${Array.from({ length: D().settings.years }, (_, i) => D().settings.firstFY + i).map(fy => `<button data-a="${act}|${fy}" class="${cur === fy ? 'on' : ''}">${fy}年度${fy === D().settings.dailyFY ? '<br><small>日別</small>' : ''}</button>`).join('')}</div>`;
+const fyTabs = (cur, act) => `<div class="tabs">${Array.from({ length: D().settings.years }, (_, i) => D().settings.firstFY + i).map(fy => `<button data-a="${act}|${fy}" class="${cur === fy ? 'on' : ''}">${fy}年度${L.fyHasDaily(D(), fy) ? '<br><small>日別</small>' : ''}</button>`).join('')}</div>`;
 handlers.trade = t => { ui.trade = t; render(); };
 // 「竣工も表示」切替（このスマホに記憶）。竣工＝区分が「竣」の現場だけ（工期では判断しない）
 function doneToggle(trade) {
@@ -119,7 +122,9 @@ handlers.doneSet = id => { const s = site(id); if (!s || !confirm(`「${s.name}�
 handlers.doneUnset = id => { const s = site(id); if (!s) return; const back = s.prevKubun && s.prevKubun !== L.DONE ? s.prevKubun : '現';
   if (!confirm(`「${s.name}」の竣工を解除して、区分を「${back}」に戻しますか？`)) return; draft = null; op(L.undoneOp(s)); };
 handlers.go = h => { ui.keepScroll = false; if (location.hash === '#' + h) render(); else location.hash = h; };
-const curYm = () => today.slice(0, 7);
+const curYm = () => L.todayYm();
+const today = () => L.todayStr();
+const ymJP = ym => { const { y, m } = L.parseYm(ym); return `${y}年${m}月`; };
 
 // ---------- 現場一覧 ----------
 function vList() {
@@ -158,7 +163,7 @@ function vSite(id) {
       <div class="stepper"><button data-a="mstep|${s.id}|${ym}|-1">−</button><div class="val" data-a="medit|${s.id}|${ym}">${L.fmt1(mi.value) || '0'}</div><button data-a="mstep|${s.id}|${ym}|1">＋</button></div></div>`;
   }
   h += '</div>';
-  if (ui.fy === doc.settings.dailyFY) h += `<p class="muted">${ui.fy}年度の合計人工：${fyN}人工。この年度は日別が元データです。月の数字を変えると、その月の稼働日に整数で割り振り直します。</p>`;
+  if (L.fyHasDaily(doc, ui.fy)) h += `<p class="muted">${ui.fy}年度の合計人工：${fyN}人工。日別の月は日別が元データです。月の数字を変えると、その月の稼働日に整数で割り振り直します。</p>`;
   h += siteSalesCard(doc, s);
   return h;
 }
@@ -240,13 +245,14 @@ function calCells(ym, cell) {
 }
 function monthNav(ym, act, months) {
   const i = months.indexOf(ym);
-  return `<div class="flex"><button data-a="${act}|${months[i - 1] || ''}" ${i <= 0 ? 'disabled' : ''}>‹ 前の月</button><b class="center" style="font-size:19px">${ym.replace('-', '年')}月</b><button data-a="${act}|${months[i + 1] || ''}" ${i >= months.length - 1 ? 'disabled' : ''}>次の月 ›</button></div>`;
+  return `<div class="flex"><button data-a="${act}|${months[i - 1] || ''}" ${i <= 0 ? 'disabled' : ''}>◀ 前の月</button><b class="center" style="font-size:18px;white-space:nowrap">${ymJP(ym)}</b><button data-a="${act}|${months[i + 1] || ''}" ${i >= months.length - 1 ? 'disabled' : ''}>次の月 ▶</button></div>`;
 }
 function vDay(id, ym) {
   const doc = D(), s = site(id); if (!s) return '<p>現場が見つかりません</p>';
-  const months = L.fyMonths(doc.settings.dailyFY);
+  const months = L.dailyMonths(doc);
   if (!months.includes(ym)) ym = months.includes(curYm()) ? curYm() : months[0];
-  const arr = (s.daily && s.daily[ym]) || []; const mi = L.monthInfo(doc, s, ym); const dates = L.datesOfMonth(ym), last = dates.length;
+  const sView = (() => { const a = L.dailyOf(doc, s, ym); return a && a.length ? { ...s, daily: { ...(s.daily || {}), [ym]: a } } : s; })();
+  const arr = (sView.daily && sView.daily[ym]) || []; const mi = L.monthInfo(doc, sView, ym); const dates = L.datesOfMonth(ym), last = dates.length;
   if (ui.dayKey !== id + ym) { ui.dayKey = id + ym; ui.sel = null; ui.r1 = ui.r2 = null; ui.ms = []; ui.mFrom = 1; ui.mTo = last; }
   const inR = d => ui.r1 && ui.r2 && d >= (ui.r1 < ui.r2 ? ui.r1 : ui.r2) && d <= (ui.r1 < ui.r2 ? ui.r2 : ui.r1);
   const mode = ui.multi ? 2 : ui.range ? 1 : 0;
@@ -296,7 +302,11 @@ handlers.dtap = d => {
   render();
 };
 const dayVal = (s, d) => ((s.daily && s.daily[d.slice(0, 7)]) || [])[Number(d.slice(8)) - 1] || 0;
-handlers.dstep = (id, k) => { const s = site(id); const v = Math.max(0, dayVal(s, ui.sel) + Number(k)); op({ t: 'day', id, date: ui.sel, v }); };
+handlers.dstep = (id, k) => {
+  const s = site(id), d = ui.sel, arr = L.dailyOf(D(), s, d.slice(0, 7));
+  const v = Math.max(0, (arr[Number(d.slice(8)) - 1] || 0) + Number(k));
+  op({ t: 'day', id, date: d, v });
+};
 handlers.doff = id => { const s = site(id); const sd = L.siteDay(D(), s, ui.sel); const comp = L.siteDay(D(), { ...s, dayOverrides: {} }, ui.sel).work;
   const want = sd.work ? 'off' : 'work'; op({ t: 'siteDay', id, date: ui.sel, mode: (want === 'work') === comp ? null : want }); };
 handlers.dreset = id => op({ t: 'siteDay', id, date: ui.sel, mode: null });
@@ -321,10 +331,10 @@ handlers.mfill = id => { keepMv(); const v = ui.mv ?? 3; if (!ui.ms.length) retu
 
 // ---------- 5カ年 ----------
 function vGrid() {
-  const doc = D(), months = L.fyMonths(ui.gridFY), daily = ui.gridFY === doc.settings.dailyFY;
+  const doc = D(), months = L.fyMonths(ui.gridFY), nDaily = months.filter(ym => L.inWindow(doc, ym)).length;
   const sites = L.sortedSites(doc, ui.trade, OPT()); const tots = months.map(ym => L.monthTotals(doc, ym, OPT())[ui.trade]);
   let h = `<h2>5カ年山積表 <small class="muted">人/日</small></h2>${tradeTabs()}${doneToggle(ui.trade)}${fyTabs(ui.gridFY, 'gfy')}
-   <p class="muted small">${daily ? '青い列は日別データから計算した月平均です（数字をタップで変更→日に割り振り）。' : 'マスをタップすると数字を変えられます。'}</p>
+   <p class="muted small">${nDaily ? '青い列は日別データから計算した月平均です（数字をタップで変更→日に割り振り）。日別でない月は月の値です。' : 'マスをタップすると数字を変えられます。'}</p>
    <div class="grid-wrap"><table class="grid"><thead><tr><th class="nm">工事名</th>${months.map(ym => `<th>${L.parseYm(ym).m}月</th>`).join('')}</tr></thead><tbody>`;
   for (const cat of L.CATEGORIES) {
     for (const s of sites.filter(x => x.category === cat)) {
@@ -404,7 +414,7 @@ handlers.period = p => { localStorage.setItem(KEY.period, p); render(); };
 handlers.pstart = fy => { localStorage.setItem(KEY.pstart, fy); render(); };
 function vSum() {
   const doc = D(); const s = doc.settings, sel = selGroups();
-  let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと（通期）</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと（${s.dailyFY}年度）</button></div>
+  let h = `<h2>集計</h2><div class="tabs"><button data-a="smode|month" class="${ui.sumMode === 'month' ? 'on' : ''}">月ごと（通期）</button><button data-a="smode|day" class="${ui.sumMode === 'day' ? 'on' : ''}">日ごと</button></div>
     <p class="muted small" style="margin:4px 0">見たい組をチェック（この端末に記憶）</p>${groupPicker()}${doneToggle()}`;
   if (!sel.length) return h + '<p class="card center">上のチェックを1つ以上オンにしてください</p>';
   if (ui.sumMode === 'month') {
@@ -434,7 +444,8 @@ function vSum() {
       <p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×その現場の稼働日）。×22日＝Excelと同じく 合計×22。</p>`;
     h += salesSection(doc, data, months, years, start);
   } else {
-    const months = L.fyMonths(s.dailyFY); if (!months.includes(ui.sumYm)) ui.sumYm = months[0];
+    const months = L.dailyMonths(doc); if (!months.length) return h + '<p class="card">日別で見られる月がありません</p>';
+    if (!months.includes(ui.sumYm)) ui.sumYm = months.includes(curYm()) ? curYm() : months[0];
     const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d, OPTG()));
     const trades = Object.keys(L.TRADES).filter(t => sel.some(k => k.startsWith(t)));
     h += monthNav(ui.sumYm, 'symon', months);
@@ -443,7 +454,7 @@ function vSum() {
       ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td>${trades.map(t => `<td>${dt[i][t] || ''}</td>`).join('')}<td>${trades.reduce((a, t) => a + dt[i][t], 0) || ''}</td></tr>`; }).join('')}
       <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}<td>${dt.reduce((a, x) => a + trades.reduce((b, t) => b + x[t], 0), 0)}</td></tr></tbody></table></div>`;
   }
-  h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ ${s.dailyFY}年度 日別CSV</button>`;
+  h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ 日別CSV</button>`;
   return h;
 }
 // ---- 売上見込み（人工×単価）：選んだ組・期間どおり ----
@@ -473,7 +484,7 @@ handlers.est = m => op({ t: 'settings', patch: { estimateMode: m } });
 handlers.csv = kind => {
   const doc = D(); const o = OPTG(); const text = kind === 'month' ? L.monthlyCsv(doc, o) : L.dailyCsv(doc, o);
   const tag = o.groups.length === ALLG.length ? '' : '_' + o.groups.map(k => L.GROUPS.find(g => g.key === k).label.replace(' ', '')).join('_');
-  const name = kind === 'month' ? `労務稼働予定_5カ年${tag}_${today}.csv` : `労務稼働予定_${doc.settings.dailyFY}年度_日別${tag}_${today}.csv`;
+  const name = kind === 'month' ? `労務稼働予定_5カ年${tag}_${today()}.csv` : `労務稼働予定_日別_${L.dailyFrom(doc).replace('-', '')}-${L.dailyHorizon(doc).replace('-', '')}${tag}_${today()}.csv`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 };
 
@@ -490,9 +501,9 @@ function vCal() {
    <tr><td class="nm">カレンダーの稼働日</td>${L.fyMonths(ui.sumFY).map(ym => `<td>${L.workingDays(doc, null, ym)}</td>`).join('')}</tr>
    <tr><td class="nm">×22方式の日数（タップで変更）</td>${L.fyMonths(ui.sumFY).map(ym => { const m = L.parseYm(ym).m; return `<td class="c" data-a="fixd|${m}">${s.fixedDays?.[m] ?? 22}</td>`; }).join('')}</tr></tbody></table></div>
    <p class="muted small">Excelの入力方法メモ：月4閉所＝22日、年末年始(12月・1月)＝22、GW＝22、お盆＝20。Excelの計算式は全部の月で×22です。</p>
-   <h3>日別で管理する年度（1カ年）</h3><p>今は <b>${s.dailyFY}年度</b>（${s.dailyFY}年4月～${s.dailyFY + 1}年3月）が日別です。</p>
-   ${s.dailyFY + 1 < s.firstFY + s.years ? `<button class="wide" data-a="roll|${s.dailyFY + 1}">${s.dailyFY + 1}年度に進める</button>` : ''}
-   <p class="muted small">進めると、${s.dailyFY}年度は月平均の数字で固定され、${s.dailyFY + 1}年度の月の数字が日に割り振られます。</p>
+   <h3>日別で入れる期間</h3>
+   <p>今は <b>${ymJP(L.dailyFrom(doc))}</b>から、<b>今月（${ymJP(curYm())}）の12か月先（${ymJP(L.dailyHorizon(doc))}）</b>まで日別で入れられます。前の月も、日別だった月はそのまま見られて直せます。</p>
+   <p class="muted small">5カ年の先のほう（${ymJP(L.addMonths(L.dailyHorizon(doc), 1))}以降）は月の値だけです。月が近づくと自動で日別に切り替わります（月の値は変わりません。日別画面を開いて数字を直したとき、稼働日に整数で割り振られます）。</p>
    <h3>目標人数（余力の計算用）</h3><div class="flex"><button data-a="tgt|doko">土工 ${s.targets?.doko ?? 0}人</button><button data-a="tgt|tobi">鳶工 ${s.targets?.tobi ?? 0}人</button></div>
    <p class="muted small">祝日：内閣府「国民の祝日」CSV（2026・2027年）。2028年以降は法律の決まりで計算した見込み（官報で確定）。</p>`;
   return h;
