@@ -133,6 +133,24 @@ export function groupSeries(doc, members, target, months) {
 // kind が無い古いデータは工事区分「小口」を小口とみなす（古い画面で保存し直されても崩れない）
 export const isKogu = k => (k.kind ? k.kind === 'kogu' : k.kubun === '小口');
 export const KINDS = { normal: '通常（請書）', kogu: '小口（単月請求）' };
+// ---------- 業種（鳶 / 土工）。フィールド名は trade のまま（保存形式は変えない）----------
+export const TRADES = ['鳶', '土工'];
+export const tradeClass = t => (t === '土工' ? 'doko' : t === '鳶' ? 'tobi' : 'tunk');
+// 明示の業種があればそれを使う。無いときだけ、名前・短い名前・シート名・id から一意に読み取れる場合に限って補う（推測はしない）
+export function tradeOf(k) {
+  if (!k) return null;
+  if (k.trade === '鳶' || k.trade === '土工') return k.trade;
+  const hits = new Set();
+  const add = s => {
+    if (s == null || s === '') return;
+    const t = String(s);
+    if (t.includes('鳶') || /^tobi\b/i.test(t) || /^tobi/i.test(t)) hits.add('鳶');
+    if (t.includes('土工') || /^doko\b/i.test(t) || /^doko/i.test(t)) hits.add('土工');
+  };
+  add(k.name); add(k.short); add(k.sheet); add(k.id);
+  return hits.size === 1 ? [...hits][0] : null;
+}
+export const ambiguousTrades = doc => (doc.keisho || []).filter(k => tradeOf(k) == null).map(k => ({ id: k.id, no: k.no, name: k.name, short: k.short, trade: k.trade ?? null, sheet: k.sheet ?? null }));
 // ---------- 現場（settings.sites。名前だけなので入力用も読める）----------
 // 1現場に請書がいくつでも。請書・合算グループの siteId が空なら最初の現場（古い画面で保存し直されても崩れない）
 export const sitesOf = doc => (doc.settings && doc.settings.sites) || [];
@@ -149,8 +167,8 @@ export function effTarget(doc, x, trade) {
 // 集計ブロック：合算グループ（groups）＋単独管理の請書（出来高対象でグループなし）。sid で現場をしぼる
 export function blocks(doc, sid = null) {
   const out = [];
-  for (const g of doc.groups || []) { if (sid != null && siteOfG(doc, g) !== sid) continue; const members = groupMembers(doc, g.id).filter(k => k.taisho !== false && !isKogu(k) && (sid == null || siteOfK(doc, k) === sid)); if (members.length) out.push({ type: 'group', id: g.id, name: g.name, target: effTarget(doc, g, members[0].trade), trade: members[0].trade, members, no: members[0].no, g }); }
-  for (const k of doc.keisho) if (k.active !== false && k.taisho !== false && !isKogu(k) && !k.group && (sid == null || siteOfK(doc, k) === sid)) out.push({ type: 'single', id: k.id, name: k.short || k.name, target: effTarget(doc, k, k.trade), trade: k.trade, members: [k], no: k.no });
+  for (const g of doc.groups || []) { if (sid != null && siteOfG(doc, g) !== sid) continue; const members = groupMembers(doc, g.id).filter(k => k.taisho !== false && !isKogu(k) && (sid == null || siteOfK(doc, k) === sid)); if (members.length) out.push({ type: 'group', id: g.id, name: g.name, target: effTarget(doc, g, tradeOf(members[0])), trade: tradeOf(members[0]), members, no: members[0].no, g }); }
+  for (const k of doc.keisho) if (k.active !== false && k.taisho !== false && !isKogu(k) && !k.group && (sid == null || siteOfK(doc, k) === sid)) out.push({ type: 'single', id: k.id, name: k.short || k.name, target: effTarget(doc, k, tradeOf(k)), trade: tradeOf(k), members: [k], no: k.no });
   return out.sort((a, b) => a.no - b.no);
 }
 // 会議サマリー（報告月 R までの累計。Excel は最終行の累計＝データのある最新月までと同じ）。sid で現場をしぼる
@@ -166,10 +184,10 @@ export function summary(doc, R, sid = null) {
     return { ...b, items: members, sumAmount, sumCum, rate: rate(sumCum, sumAmount), cumNinku, dekidaka: dk, diff: dk == null || !b.target ? null : dk - b.target, achieve: dk == null || !b.target ? null : dk / b.target, eval: evalMark(dk, b.target) };
   });
   const all = siteKeisho(doc, sid).map(item);
-  const trades = [...new Set(all.map(i => i.k.trade))];
+  const trades = [...new Set(all.map(i => tradeOf(i.k)))].filter(t => t != null);
   const total = all.reduce((s, i) => s + i.cum, 0);
   const share = v => (total === 0 ? 0 : v / total);
-  const totals = { trades: trades.map(t => { const items = all.filter(i => i.k.trade === t); const sum = items.reduce((s, i) => s + i.cum, 0); return { trade: t, items: items.map(i => ({ ...i, share: share(i.cum) })), sum, share: share(sum) }; }), total, share: total === 0 ? 0 : 1 };
+  const totals = { trades: trades.map(t => { const items = all.filter(i => tradeOf(i.k) === t); const sum = items.reduce((s, i) => s + i.cum, 0); return { trade: t, items: items.map(i => ({ ...i, share: share(i.cum) })), sum, share: share(sum) }; }), total, share: total === 0 ? 0 : 1 };
   return { R, sid, secs, totals };
 }
 // 現場の成績（現場カード）：累計請求（小口も含む全請書）・累計人工（出来高対象）・目標のあるブロックの出来高・目標差・達成率
@@ -179,7 +197,27 @@ export function siteResult(doc, sid, R = null) {
   const nk = ks.filter(k => !isKogu(k)), kg = ks.filter(isKogu);
   const amount = nk.some(k => k.amount != null) ? nk.reduce((s, k) => s + n0(k.amount), 0) : null;
   const kogu = kg.reduce((s, k) => s + cumThrough(doc, k, R).amount, 0);
-  return { sid, count: nk.length, koguCount: kg.length, amount, cum: sm.totals.total, kogu, keishoCum: sm.totals.total - kogu, cumNinku, secs: sm.secs, summary: sm };
+  return { sid, count: nk.length, koguCount: kg.length, amount, cum: sm.totals.total, kogu, keishoCum: sm.totals.total - kogu, cumNinku, secs: sm.secs, summary: sm, trades: siteTradeResult(doc, sid, R) };
+}
+// 現場の業種別小計（請書一覧のセクション用）。出来高は出来高対象の請書だけ（小口・対象外は入れない）。目標は共通単価
+export function siteTradeResult(doc, sid, R = null) {
+  const ks = siteKeisho(doc, sid);
+  const one = (trade, list) => {
+    const nk = list.filter(k => !isKogu(k)), kg = list.filter(isKogu);
+    const target = (trade && doc.common && n0(doc.common[trade])) || null;
+    const laborK = nk.filter(k => k.taisho !== false);
+    const laborCum = laborK.reduce((s, k) => s + cumThrough(doc, k, R).amount, 0);
+    const ninku = laborK.reduce((s, k) => s + cumThrough(doc, k, R).ninku, 0);
+    const cum = list.reduce((s, k) => s + cumThrough(doc, k, R).amount, 0);
+    const kogu = kg.reduce((s, k) => s + cumThrough(doc, k, R).amount, 0);
+    const amount = nk.some(k => k.amount != null) ? nk.reduce((s, k) => s + n0(k.amount), 0) : null;
+    const dk = ninku === 0 ? null : laborCum / ninku;
+    return { trade, class: tradeClass(trade), keisho: nk, koguList: kg, count: nk.length, koguCount: kg.length, amount, cum, kogu, keishoCum: cum - kogu, laborCum, cumNinku: ninku, dekidaka: dk, target, diff: dk == null || !target ? null : dk - target, achieve: dk == null || !target ? null : dk / target, eval: evalMark(dk, target) };
+  };
+  const out = TRADES.filter(t => ks.some(k => tradeOf(k) === t)).map(t => one(t, ks.filter(k => tradeOf(k) === t)));
+  const unk = ks.filter(k => tradeOf(k) == null);
+  if (unk.length) out.push(one(null, unk));
+  return out;
 }
 // 会社合計：現場の合計＋職種ごとに「目標のあるブロック」を足した出来高（目標は共通単価、無ければブロックの目標）
 export function companyResult(doc, sids, R = null) {
@@ -200,21 +238,23 @@ export function groupMatching(doc, ids) { const want = [...new Set(ids)].sort().
 const res = (cum, ninku, target) => { const dk = ninku === 0 ? null : cum / ninku; return { cum, ninku, dekidaka: dk, target: target || null, diff: dk == null || !target ? null : dk - target, achieve: dk == null || !target ? null : dk / target, eval: evalMark(dk, target) }; };
 // R（報告月）までの累計。職種がまざると目標は出さない（職種ごとの内訳に目標をつける）
 export function comboResult(doc, ids, R = null) {
-  const members = comboMembers(doc, ids), trades = [...new Set(members.map(k => k.trade))];
-  const mixed = trades.length > 1, g = mixed ? null : groupMatching(doc, members.map(k => k.id));
+  const members = comboMembers(doc, ids), allTrades = members.map(k => tradeOf(k));
+  const trades = [...new Set(allTrades.filter(t => t != null))];
+  const mixed = new Set(allTrades.map(t => t || '\0')).size > 1;
+  const g = mixed ? null : groupMatching(doc, members.map(k => k.id));
   const common = t => (doc.common && n0(doc.common[t])) || null;
   const solo = members.length === 1 && !members[0].group ? members[0] : null; // 単独管理の請書1本 → その請書の目標（会議サマリーと同じ）
-  const target = mixed || !members.length ? null : g ? effTarget(doc, g, trades[0]) : solo ? effTarget(doc, solo, solo.trade) : common(trades[0]);
+  const target = mixed || !members.length ? null : g ? effTarget(doc, g, trades[0]) : solo ? effTarget(doc, solo, tradeOf(solo)) : common(trades[0]);
   const months = comboMonths(members).filter(m => !R || m <= R);
   const s = groupSeries(doc, members, target, months);
   const last = Math.max(...s.rows.map((r, i) => (r.per.some(x => x.amount || x.ninku) ? i : -1)), -1);
-  const byTrade = trades.map(t => { const ms = members.filter(k => k.trade === t); const c = ms.reduce((a, k) => { const x = cumThrough(doc, k, R); return { amount: a.amount + x.amount, ninku: a.ninku + x.ninku }; }, { amount: 0, ninku: 0 }); return { trade: t, count: ms.length, ...res(c.amount, c.ninku, common(t)) }; });
+  const byTrade = trades.map(t => { const ms = members.filter(k => tradeOf(k) === t); const c = ms.reduce((a, k) => { const x = cumThrough(doc, k, R); return { amount: a.amount + x.amount, ninku: a.ninku + x.ninku }; }, { amount: 0, ninku: 0 }); return { trade: t, count: ms.length, ...res(c.amount, c.ninku, common(t)) }; });
   return { members, trades, mixed, group: g, solo: !!solo, months, rows: s.rows.slice(0, last + 1), allRows: s.rows, ...res(s.tot.G, s.tot.H, target), byTrade };
 }
 // すぐ選べる組み合わせ：現場全体（職種ごと、出来高対象）＋既存の合算グループ
 export function comboPresets(doc, sid) {
   const ks = siteKeisho(doc, sid).filter(k => !isKogu(k));
-  const out = [...new Set(ks.map(k => k.trade))].map(t => ({ id: 'all:' + t, name: `現場全体（${t}）`, ids: ks.filter(k => k.trade === t && k.taisho !== false).map(k => k.id) })).filter(p => p.ids.length);
+  const out = [...new Set(ks.map(k => tradeOf(k)))].filter(t => t != null).map(t => ({ id: 'all:' + t, name: `現場全体（${t}）`, ids: ks.filter(k => tradeOf(k) === t && k.taisho !== false).map(k => k.id) })).filter(p => p.ids.length);
   for (const b of blocks(doc, sid)) if (b.type === 'group') out.push({ id: 'g:' + b.id, name: b.name, ids: b.members.map(k => k.id), groupId: b.id });
   return out;
 }
@@ -222,7 +262,7 @@ export function comboPresets(doc, sid) {
 // 1つの請書は1つのグループにしか入れない → ほかのグループからは移る。出来高対象にする
 export function comboSaveOps(doc, ids, { gid = null, name = '', sid = null, newId } = {}) {
   const members = comboMembers(doc, ids); if (!members.length) throw new Error('請書をえらんでください');
-  if (new Set(members.map(k => k.trade)).size > 1) throw new Error('職種がまざった組み合わせはグループにできません（目標単価が職種で違うため）');
+  const ts = members.map(k => tradeOf(k)); if (new Set(ts).size > 1 || ts.some(t => !t)) throw new Error('業種がまざった組み合わせはグループにできません（目標単価が業種で違うため）');
   const ops = []; let id = gid;
   if (!gid) { if (!name) throw new Error('名前を入れてください'); id = newId; ops.push({ type: 'groupAdd', g: { id, name, target: null, method: '組み合わせから作成', note: '', common: true, ...(sid ? { siteId: sid } : {}) } }); }
   else if (name) ops.push({ type: 'group', id, patch: { name } });
@@ -266,7 +306,7 @@ export function sitesMigrationOps(doc, site, common) {
   const ops = [{ type: 'siteAdd', s: { roumuIds: [], done: false, ...site } }];
   for (const k of doc.keisho) ops.push({ type: 'keisho', id: k.id, patch: { siteId: site.id } });
   for (const g of doc.groups || []) {
-    const tr = (groupMembers(doc, g.id)[0] || {}).trade;
+    const tr = tradeOf(groupMembers(doc, g.id)[0] || {});
     ops.push({ type: 'group', id: g.id, patch: { siteId: site.id, ...(common && tr && n0(g.target) && n0(g.target) === n0(common[tr]) ? { common: true } : {}) } });
   }
   if (common) ops.push({ type: 'common', patch: common });

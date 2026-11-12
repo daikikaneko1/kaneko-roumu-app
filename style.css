@@ -1,4 +1,4 @@
-:root{--blue:#1f4e79;--doko:#c0504d;--tobi:#4f81bd;--bg:#f4f6f9;--line:#d6dbe3;--off:#e9ecef;--edit:#fff3cd}
+:root{--blue:#1f4e79;--doko:#D55E00;--tobi:#0072B2;--tobi-bg:#e7f3fa;--doko-bg:#fdf0e4;--bg:#f4f6f9;--line:#d6dbe3;--off:#e9ecef;--edit:#fff3cd}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);font:17px/1.5 -apple-system,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;color:#222;-webkit-text-size-adjust:100%}
 header{position:sticky;top:0;z-index:5;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top))}
 #title{font-weight:700;font-size:19px}#status{font-size:14px;background:rgba(255,255,255,.15);padding:4px 10px;border-radius:14px}
@@ -214,3 +214,41 @@ label.cbk .cn{display:flex;flex-direction:column;min-width:0}label.cbk small{col
 .span.ax .st{background:none;height:auto;display:flex;justify-content:space-between;color:#888}.span.ax em{font-style:normal}
 .comboresult .kpis>div{flex:1 1 40%;min-width:0}.comboresult .kpis b{font-size:20px;word-break:keep-all;overflow-wrap:anywhere}
 @media (min-width:700px){.comboresult .kpis>div{flex:1 1 20%}}
+
+/* ---- 出来高：業種（鳶=青 / 土工=オレンジ。色覚多様性でも分かれやすい組み合わせ）---- */
+.tchip{display:inline-block;font-size:11px;font-weight:700;line-height:1.6;padding:0 6px;border-radius:8px;margin-right:6px;vertical-align:2px;letter-spacing:.04em}
+.tchip.tobi{background:var(--tobi-bg);color:var(--tobi);border:1px solid var(--tobi)}
+.tchip.doko{background:var(--doko-bg);color:var(--doko);border:1px solid var(--doko)}
+.tchip.tunk{background:#eee;color:#555;border:1px solid #999}
+.tradesection{border:1.5px solid var(--line);border-radius:12px;padding:8px 10px 6px;margin:14px 0;background:#fff}
+.tradesection.tobi{border-color:var(--tobi);background:#f7fbfe}
+.tradesection.doko{border-color:var(--doko);background:#fefaf5}
+.tradesection.tunk{border-color:#999;background:#fafafa}
+.tradesection>h3{margin:4px 0 8px;display:flex;align-items:center;gap:6px;font-size:18px}
+.tradesection.tobi>h3{color:var(--tobi)}
+.tradesection.doko>h3{color:var(--doko)}
+.tradesection .tradesub{margin:0 0 8px}
+.tradesection .grid-wrap{background:#fff}
+.bal.t-tobi .track{background:#d4eaf6}
+.bal.t-tobi .used{background:var(--tobi)}
+.bal.t-doko .track{background:#f8e6d4}
+.bal.t-doko .used{background:var(--doko)}
+.bal.lv-yellow .track{background:#fff3c4}.bal.lv-yellow .used{background:#d39e00}
+.bal.lv-red .track{background:#ffd6d6}.bal.lv-red .used{background:#c62828}
+.bal.lv-over .track{background:#c62828}.bal.lv-over .used{background:#8e0000}
+svg.chart.t-tobi path.mon{stroke:var(--tobi)}svg.chart.t-tobi path.cum{stroke:#4da6d8}svg.chart.t-tobi .pt.nt{fill:var(--tobi)}svg.chart.t-tobi rect.kb{fill:var(--tobi)}
+svg.chart.t-doko path.mon{stroke:var(--doko)}svg.chart.t-doko path.cum{stroke:#f0a45a}svg.chart.t-doko .pt.nt{fill:var(--doko)}svg.chart.t-doko rect.kb{fill:var(--doko)}
+.legend.t-tobi .lg.mon::before,.legend.t-tobi .lg::before{background:var(--tobi)}.legend.t-tobi .lg.cum::before{background:#4da6d8}.legend.t-tobi .lg.kbar::before{background:var(--tobi);height:10px}
+.legend.t-doko .lg.mon::before,.legend.t-doko .lg::before{background:var(--doko)}.legend.t-doko .lg.cum::before{background:#f0a45a}.legend.t-doko .lg.kbar::before{background:var(--doko);height:10px}
+.tabs button.tobi.on{background:var(--tobi);border-color:var(--tobi);color:#fff}
+.tabs button.doko.on{background:var(--doko);border-color:var(--doko);color:#fff}
+.ctrade.tobi .ct{color:var(--tobi)}.ctrade.doko .ct{color:var(--doko)}
+label.cbk.tobi.on{border-color:var(--tobi);background:var(--tobi-bg)}
+label.cbk.doko.on{border-color:var(--doko);background:var(--doko-bg)}
+button.pick.tobi,button.pick.doko{border-left-width:5px}
+button.pick.tobi{border-left-color:var(--tobi)}button.pick.doko{border-left-color:var(--doko)}
+button.pick.tobi .no{background:var(--tobi-bg);color:var(--tobi)}
+button.pick.doko .no{background:var(--doko-bg);color:var(--doko)}
+.span.tobi .st i{background:var(--tobi)}.span.doko .st i{background:var(--doko)}
+.minibal .tlab{font-size:12px;font-weight:700;margin:6px 0 2px}
+.minibal .tlab.tobi{color:var(--tobi)}.minibal .tlab.doko{color:var(--doko)}
