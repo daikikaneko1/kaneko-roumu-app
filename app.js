@@ -1,11 +1,13 @@
 import * as L from './logic.js';
 import { decryptSecret } from './crypto.js';
-import { GitHubStore, MemoryStore, Sync } from './store.js';
+import { GitHubStore, GitHubVersions, MemoryStore, MemoryVersions, Sync } from './store.js';
+import * as V from './versions.js';
+import { overlaySvg, totalSvg, legendHtml } from './ver-charts.js';
 import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone', groups: 'roumu.sumGroups', period: 'roumu.sumPeriod', pstart: 'roumu.sumStart' };
+const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone', groups: 'roumu.sumGroups', period: 'roumu.sumPeriod', pstart: 'roumu.sumStart', verOk: 'roumu.versionChecked' };
 const OPT = () => ({ includeDone: localStorage.getItem(KEY.showDone) === '1' });
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 let sync = null, saveTimer = null;
@@ -23,13 +25,15 @@ async function boot() {
   }
   if (params.get('demo') === '1') { // 体験モード（ブラウザ内だけ、保存されない）
     const r = await fetch('demo-data.json'); if (!r.ok) return fatal('体験用データがありません');
-    return start(new MemoryStore(await r.json()), true);
+    const demoDoc = await r.json(); vs.src = new MemoryVersions(V.demoVersions(demoDoc, L.todayYm()));
+    return start(new MemoryStore(demoDoc), true);
   }
   if (!CONFIG.encToken) return fatal('まだ準備中です（データの鍵が設定されていません）。管理者に連絡してください。');
   const pass = localStorage.getItem(KEY.pass);
   if (!pass) return loginScreen();
   const token = await decryptSecret(CONFIG.encToken, pass);
   if (!token) { localStorage.removeItem(KEY.pass); return loginScreen('合言葉が違うか、変更されました。もう一度入れてください。'); }
+  vs.src = new GitHubVersions({ ...CONFIG, token });
   start(new GitHubStore({ ...CONFIG, token }));
 }
 function fatal(msg) { $('#main').innerHTML = `<div class="card login"><h2>労務稼働予定</h2><p>${esc(msg)}</p></div>`; }
@@ -45,7 +49,7 @@ function loginScreen(err = '') {
     $('#msg').textContent = '確認中…';
     const token = await decryptSecret(CONFIG.encToken, p);
     if (!token) { $('#msg').textContent = '合言葉が違います'; return; }
-    localStorage.setItem(KEY.pass, p); start(new GitHubStore({ ...CONFIG, token }));
+    localStorage.setItem(KEY.pass, p); vs.src = new GitHubVersions({ ...CONFIG, token }); start(new GitHubStore({ ...CONFIG, token }));
   };
   $('#go').onclick = go; $('#pass').onkeydown = e => { if (e.key === 'Enter') go(); };
 }
@@ -56,6 +60,7 @@ async function start(store, demo = false) {
     if (e.auth) return fatal('データの鍵が使えません（期限切れか無効）。管理者に連絡してください。');
     return fatal('読み込みできませんでした。電波の良い所でもう一度開いてください。（' + e.message + '）');
   }
+  autoVersion(structuredClone(sync.base), sync.sha); // 今月の版が無ければ、読み込んだまま（直す前）のデータで作る
   try { const p = JSON.parse(localStorage.getItem(KEY.pending) || '[]'); if (!demo && p.length) { sync.pending = p; scheduleSave(); } } catch { }
   const s = sync.doc.settings;
   const ym0 = L.todayYm(), all0 = L.allMonths(sync.doc), dm0 = L.dailyMonths(sync.doc);
@@ -92,7 +97,7 @@ function render() {
   if (!sync) return;
   const [r, a, b] = location.hash.slice(1).split('/').map(decodeURIComponent);
   document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('on', x.dataset.nav === ({ site: 'list', edit: 'list', day: 'list' }[r] || r)));
-  const f = { list: vList, site: () => vSite(a), edit: () => vEdit(a), day: () => vDay(a, b), grid: vGrid, sum: vSum, cal: vCal, settings: vSettings }[r] || vList;
+  const f = { list: vList, site: () => vSite(a), edit: () => vEdit(a), day: () => vDay(a, b), grid: vGrid, sum: vSum, ver: vVer, cal: vCal, settings: vSettings }[r] || vList;
   const y = window.scrollY; const html = f();
   if (html != null) { $('#main').innerHTML = html; bind(); }
   if (ui.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
@@ -101,6 +106,7 @@ function render() {
 }
 const handlers = {};
 function bind() { ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
+  $('#main').querySelectorAll('[data-ch]').forEach(el => { el.onchange = () => { ui.keepScroll = true; handlers[el.dataset.ch] && handlers[el.dataset.ch](el.value); }; });
   $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; });
   const enter = (sel, fn) => { const el = $(sel); if (el) el.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); fn(); } }; };
   enter('#who', () => handlers.who());
@@ -454,6 +460,7 @@ function vSum() {
       ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td>${trades.map(t => `<td>${dt[i][t] || ''}</td>`).join('')}<td>${trades.reduce((a, t) => a + dt[i][t], 0) || ''}</td></tr>`; }).join('')}
       <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}<td>${dt.reduce((a, x) => a + trades.reduce((b, t) => b + x[t], 0), 0)}</td></tr></tbody></table></div>`;
   }
+  h += `<button class="wide" data-a="go|ver">🗂️ 版の比較（月ごとに残した山積みの変化を見る）</button>`;
   h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ 日別CSV</button>`;
   return h;
 }
@@ -541,6 +548,147 @@ handlers.who = () => { localStorage.setItem(KEY.who, $('#who').value.trim()); al
 handlers.reload = async () => { if (sync.pending.length) await sync.save(localStorage.getItem(KEY.who) || '').catch(() => {}); await sync.load().catch(e => alert(e.message)); render(); };
 handlers.savenow = () => sync.save(localStorage.getItem(KEY.who) || '').then(render).catch(e => alert(e.message));
 handlers.lock = () => { if (!confirm('合言葉を消しますか？次に開くとき入れ直しが必要です。')) return; localStorage.removeItem(KEY.pass); location.reload(); };
+
+// ---------- 版の比較・推移（版は見るだけ。直すのはいつもの画面＝今のデータ） ----------
+const vs = { src: null, list: null, cache: {}, mats: {}, loading: new Set(), failed: new Set(), err: '' };
+const vKeyLabel = k => V.versionLabel(k);
+const vShort = k => { if (k === V.CURRENT) return '現在'; const { y, m } = L.parseYm(k); return `${String(y).slice(2)}年${m}月`; };
+// アプリを開いたとき：今月（日本時間）の版がまだ無ければ、読み込んだままのデータ（直す前）で作る。どの端末でも同じ。あれば何もしない
+async function autoVersion(base, sha) {
+  if (sync.demo || new URLSearchParams(location.search).get('today')) return;
+  const ym = V.jstYm();
+  if (localStorage.getItem(KEY.verOk) === ym) return;
+  try {
+    const list = V.versionsFromListing(await vs.src.list());
+    if (V.needsVersion(list, ym)) await vs.src.createIfMissing(ym, V.makeVersion(base, ym, { savedBy: '自動（アプリを開いたとき）', source: { blob: sha || '' } }));
+    localStorage.setItem(KEY.verOk, ym); vs.list = null;
+  } catch { /* 次に開いたときにもう一度 */ }
+}
+async function vLoadList() {
+  if (vs.loading.has('list')) return; vs.loading.add('list');
+  try { vs.list = V.versionsFromListing(await vs.src.list()); vs.err = ''; } catch (e) { vs.err = e.auth ? 'データの鍵が使えません' : '版の一覧を読めませんでした（電波の良い所でもう一度）'; }
+  vs.loading.delete('list'); if (location.hash.startsWith('#ver')) render();
+}
+async function vLoad(keys) {
+  const need = keys.filter(k => k !== V.CURRENT && !vs.cache[k] && !vs.loading.has(k) && !vs.failed.has(k)); if (!need.length) return;
+  need.forEach(k => vs.loading.add(k));
+  await Promise.all(need.map(async k => { try { vs.cache[k] = await vs.src.get(k); } catch { vs.failed.add(k); vs.err = `${vKeyLabel(k)}を読めませんでした（電波の良い所でもう一度）`; } vs.loading.delete(k); }));
+  if (location.hash.startsWith('#ver')) { ui.keepScroll = true; render(); }
+}
+// 版の数字（現場×月）。現在＝今のデータ（未保存の変更も含む）
+function vMat(k) {
+  if (k === V.CURRENT) { const d = D(); if (vs.curDoc !== d) { vs.curDoc = d; vs.curMat = V.siteMatrix(d, V.CURRENT); } return vs.curMat; }
+  if (!vs.cache[k]) return null; return vs.mats[k] || (vs.mats[k] = V.siteMatrix(vs.cache[k].data, k));
+}
+const vDoc = k => (k === V.CURRENT ? D() : vs.cache[k] && vs.cache[k].data);
+const VMODES = { doko: '土工', tobi: '鳶工', all: '合計' };
+const VLEG = '<div class="legend vleg"><span><b class="vd up">+3</b> 増えた（青）</span><span><b class="vd dn">−2</b> 減った（赤）</span><span>空欄＝同じ</span></div>';
+const vInfoBox = () => (ui.vInfo ? `<div class="card vinfo"><div>${ui.vInfo}</div><button data-a="vinfoX" aria-label="閉じる">✕</button></div>` : '');
+const vModeTabs = () => `<div class="tabs vmode ${ui.vMode === 'all' ? '' : ui.vMode}">${Object.entries(VMODES).map(([k, v]) => `<button data-a="vmode|${k}" class="${ui.vMode === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
+const tradeChip = ts => ts.map(t => `<span class="tchip ${t}">${t === 'doko' ? '土工' : '鳶'}</span>`).join('');
+function vVer() {
+  if (!vs.list) { if (!vs.err) vLoadList(); return `<h2>版の比較</h2>${vs.err ? `<p class="card warn">${esc(vs.err)}</p><button class="wide" data-a="vretry">もう一度読み込む</button>` : '<p class="center muted">版を読み込み中…</p>'}`; }
+  ui.vMode = ui.vMode || 'all'; ui.vTab = ui.vTab || 'cmp';
+  const list = vs.list, keys = [...list, V.CURRENT];
+  let h = `<h2>版の比較</h2><p class="muted small" style="margin:0 0 6px">毎月1日の山積みを「版」として自動で残しています（${list.length}件）。版は見るだけです（直すのはいつもの画面）。</p>
+    <div class="tabs vtab"><button data-a="vtab|cmp" class="${ui.vTab === 'cmp' ? 'on' : ''}">🔍 2つの版を比べる</button><button data-a="vtab|trend" class="${ui.vTab === 'trend' ? 'on' : ''}">📈 推移グラフ</button></div>${vModeTabs()}`;
+  if (!list.length) return h + '<p class="card">まだ版がありません。毎月1日に自動で作られます。</p>';
+  if (vs.failed.size) h += `<p class="card warn">${esc(vs.err)}</p><button class="wide" data-a="vretry">もう一度読み込む</button>`;
+  return h + (ui.vTab === 'trend' ? vTrend(keys) : vCompare(keys));
+}
+function vCompare(keys) {
+  if (!keys.includes(ui.vA)) ui.vA = null; if (!keys.includes(ui.vB)) ui.vB = null;
+  const L2 = vs.list; if (!ui.vB) ui.vB = L2.length >= 2 ? L2[L2.length - 1] : V.CURRENT;
+  if (!ui.vA) ui.vA = L2.length >= 2 ? L2[L2.length - 2] : L2[L2.length - 1];
+  const opt = sel => keys.slice().reverse().map(k => `<option value="${k}" ${sel === k ? 'selected' : ''}>${k === V.CURRENT ? '現在（いまのデータ）' : vKeyLabel(k)}</option>`).join('');
+  let h = `<div class="vpick"><label>前<select id="va" data-ch="vA" aria-label="前の版">${opt(ui.vA)}</select></label><span class="arrow">→</span><label>後<select id="vb" data-ch="vB" aria-label="後の版">${opt(ui.vB)}</select></label></div>`;
+  const mA = vMat(ui.vA), mB = vMat(ui.vB);
+  if (!mA || !mB) { vLoad([ui.vA, ui.vB]); return h + '<p class="center muted">版を読み込み中…</p>'; }
+  if (ui.vA === ui.vB) h += '<p class="muted small">同じ版どうしなので、違いはありません。</p>';
+  h += `<div class="tabs"><button data-a="vgran|month" class="${ui.vGran !== 'day' ? 'on' : ''}">月ごと（5カ年）</button><button data-a="vgran|day" class="${ui.vGran === 'day' ? 'on' : ''}">日ごと</button></div>`;
+  return h + (ui.vGran === 'day' ? vCompareDay() : vCompareMonth(mA, mB));
+}
+function vOnlyToggle(c) { const on = ui.vOnly !== false; return `<button class="wide toggle ${on ? 'on' : ''}" data-a="vonly" aria-pressed="${on}">${on ? '☑' : '☐'} 変わった現場だけ表示 <small>（変わらない現場 ${c.unchanged}件${on ? 'を非表示' : 'も表示中'}）</small></button>`; }
+function vNameCell(r, extra = '') {
+  const st = r.status === 'added' ? '<span class="badge vnew">新規</span>' : r.status === 'removed' ? '<span class="badge vgone">削除</span>' : '';
+  return `<td class="nm vnm">${ui.vMode === 'all' ? tradeChip(r.trades) : ''}${esc(r.name)}${r.done ? ' <span class="badge done">竣工</span>' : ''} ${st}${r.shift && r.shift.texts.length ? `<div class="vshift">${r.shift.texts.map(t => `<span class="${/遅れ|延長/.test(t) ? 'late' : /前倒し/.test(t) ? 'early' : ''}">${esc(t)}</span>`).join('')}</div>` : ''}${extra}</td>`;
+}
+const vCell = (d, a, b, unit, dataA) => `<td class="vd ${d > 0 ? 'up' : d < 0 ? 'dn' : ''}" ${d ? `data-a="${dataA}"` : ''} title="${L.fmt1(a) || 0} → ${L.fmt1(b) || 0}${unit}">${V.fmtDiff(d)}</td>`;
+function vCompareMonth(mA, mB) {
+  const diff = V.diffMonthly(mA, mB, ui.vMode), c = diff.counts, byFY = V.changesByFY(diff);
+  const fys = [...new Set(diff.months.map(L.fyOf))];
+  if (!fys.includes(ui.vFY)) { const cur = L.fyOf(curYm()), withCh = fys.filter(fy => byFY[fy]); ui.vFY = byFY[cur] ? cur : withCh.length ? withCh[0] : fys.includes(cur) ? cur : fys[0]; }
+  const months = diff.months.filter(ym => L.fyOf(ym) === ui.vFY), idx = months.map(ym => diff.months.indexOf(ym));
+  const dN = diff.ninkuB - diff.ninkuA;
+  let h = `<div class="card vsum"><b>${esc(vKeyLabel(ui.vA))} → ${esc(vKeyLabel(ui.vB))}</b>（${VMODES[ui.vMode]}）<div class="kv2"><span>変わった現場 <b>${c.changed}</b>件</span><span>新規 <b>${c.added}</b></span><span>削除 <b>${c.removed}</b></span><span>工期のずれ <b>${c.shifted}</b></span></div>
+    <div class="kv2"><span>5カ年の人工 ${L.yen(diff.ninkuA)} → ${L.yen(diff.ninkuB)}（<b class="${dN > 0.5 ? 'tup' : dN < -0.5 ? 'tdn' : ''}">${Math.abs(dN) < 0.5 ? '±0' : (dN > 0 ? '+' : '−') + L.yen(Math.abs(dN))}</b>）</span></div>${VLEG}</div>`;
+  h += vOnlyToggle(c);
+  h += `<div class="tabs">${fys.map(fy => `<button data-a="vfy|${fy}" class="${ui.vFY === fy ? 'on' : ''}">${fy}年度${byFY[fy] ? `<br><small>変更${byFY[fy]}</small>` : '<br><small>－</small>'}</button>`).join('')}</div>`;
+  h += '<p class="muted small" style="margin:2px 0 6px">色のついたマスをタップすると、前と後の数字が出ます（人/日）。</p>';
+  const rows = diff.rows.filter(r => ui.vOnly === false || r.changed);
+  h += `<div class="grid-wrap"><table class="grid vt"><thead><tr><th class="nm">工事名</th>${months.map(ym => `<th>${L.parseYm(ym).m}月</th>`).join('')}</tr></thead><tbody>`;
+  if (!rows.length) h += `<tr><td class="nm vnm">変わった現場はありません</td>${months.map(() => '<td></td>').join('')}</tr>`;
+  for (const r of rows) h += `<tr class="${r.status}">${vNameCell(r)}${idx.map(i => { const x = r.cells[i]; return vCell(x.d, x.a, x.b, '人/日', `vcellm|${r.key}|${x.ym}`); }).join('')}</tr>`;
+  h += `<tr class="tot">${'<td class="nm">合計（人/日）</td>'}${idx.map(i => { const x = diff.totals[i]; return vCell(x.d, x.a, x.b, '人/日', `vcellm|__tot|${x.ym}`); }).join('')}</tr></tbody></table></div>
+    <p class="muted small">数字は「後−前」の 1日あたり平均の人数（人/日）。工期のずれは、人数が入っている最初の月と最後の月で見ています。</p>${vInfoBox()}`;
+  ui.vDiff = diff;
+  return h;
+}
+function vCompareDay() {
+  const dA = vDoc(ui.vA), dB = vDoc(ui.vB), months = V.commonDailyMonths(dA, ui.vA, dB, ui.vB);
+  if (!months.length) return '<p class="card">この2つの版に、どちらにも日別が入っている月がありません。</p>';
+  if (!months.includes(ui.vDayYm)) ui.vDayYm = months.includes(curYm()) ? curYm() : months[months.length - 1];
+  const diff = V.diffDaily(dA, ui.vA, dB, ui.vB, ui.vDayYm, ui.vMode), dates = L.datesOfMonth(ui.vDayYm);
+  let h = monthNav(ui.vDayYm, 'vdmon', months) + `<div class="legend">${VLEG}</div>` + vOnlyToggle(diff.counts);
+  h += '<p class="muted small" style="margin:2px 0 6px">色のついたマスをタップすると、前と後の人数が出ます（人）。</p>';
+  const rows = diff.rows.filter(r => ui.vOnly === false || r.changed);
+  h += `<div class="grid-wrap"><table class="grid vt day"><thead><tr><th class="nm">工事名</th>${dates.map(d => `<th class="${L.dow(d) === 0 ? 'sun' : L.dow(d) === 6 ? 'sat' : ''}">${Number(d.slice(8))}<br><small>${WD[L.dow(d)]}</small></th>`).join('')}<th>月計</th></tr></thead><tbody>`;
+  if (!rows.length) h += `<tr><td class="nm vnm">変わった現場はありません</td>${dates.map(() => '<td></td>').join('')}<td></td></tr>`;
+  for (const r of rows) h += `<tr class="${r.status}">${vNameCell(r)}${r.cells.map(x => vCell(x.d, x.a, x.b, '人', `vcelld|${r.key}|${x.day}`)).join('')}${vCell(r.sumB - r.sumA, r.sumA, r.sumB, '人工', '')}</tr>`;
+  const tA = diff.totals.reduce((a, x) => a + x.a, 0), tB = diff.totals.reduce((a, x) => a + x.b, 0);
+  h += `<tr class="tot"><td class="nm">合計（人）</td>${diff.totals.map(x => vCell(x.d, x.a, x.b, '人', `vcelld|__tot|${x.day}`)).join('')}${vCell(tB - tA, tA, tB, '人工', '')}</tr></tbody></table></div>${vInfoBox()}`;
+  ui.vDDiff = diff;
+  return h;
+}
+function vTrend(keys) {
+  const vers = vs.list.slice(), missing = vers.filter(k => !vs.cache[k]);
+  if (missing.length) { vLoad(missing); return `<p class="center muted">版を読み込み中…（${vers.length - missing.length}/${vers.length}）</p>`; }
+  let mats = vers.map(vMat);
+  const cur = vMat(V.CURRENT), last = mats[mats.length - 1];
+  const same = last && JSON.stringify(last.sites.map(s => [s.id, s.values])) === JSON.stringify(cur.sites.map(s => [s.id, s.values]));
+  if (!same) mats = [...mats, cur];
+  const picks = V.sitePicks(mats, ui.vMode);
+  if (ui.vSite !== V.ALL && !picks.some(p => p.key === ui.vSite)) ui.vSite = V.ALL;
+  ui.vSite = ui.vSite || V.ALL;
+  const series = V.trendSeries(mats, ui.vMode, ui.vSite);
+  const months = [...new Set(mats.flatMap(m => m.months))].sort();
+  const tm = V.trendMonths(series, months);
+  const name = ui.vSite === V.ALL ? `全現場の合計（${VMODES[ui.vMode]}）` : (picks.find(p => p.key === ui.vSite) || {}).name;
+  let h = `<label class="f">現場をえらぶ</label><select id="vsite" data-ch="vSite">${[{ key: V.ALL, name: `全現場の合計（${VMODES[ui.vMode]}）` }, ...picks].map(p => `<option value="${esc(p.key)}" ${p.key === ui.vSite ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`;
+  h += `<h3>① 版ごとの計画線：${esc(name)}</h3><p class="muted small" style="margin:0">うすい線＝古い版、黒い太線＝${same ? '最新の版' : '現在（まだ版になっていない変更を含む）'}。線が右にずれたら工期が遅れ、上がったら人数が増えています。</p>`;
+  h += V.trendMonths(series, months).length ? legendHtml(series) : '';
+  h += overlaySvg(series, tm, { avail: chartAvail() });
+  if (52 + 22 * tm.length > chartAvail()) h += '<p class="muted small">← 横にスクロールできます。</p>';
+  h += `<h3>② 版ごとの人工合計の推移：${esc(name)}</h3><p class="muted small" style="margin:0">1つの版＝1つの点。5カ年の人工（人数×稼働日）の合計です。前の版より <b class="tup">増えた＝青</b>・<b class="tdn">減った＝赤</b>。</p>`;
+  h += totalSvg(series.map(s => ({ label: s.label, short: vShort(s.key || ''), v: s.ninkuTotal })).map((p, i) => ({ ...p, short: vShort(mats[i].key) })), { avail: chartAvail() });
+  return h;
+}
+handlers.vinfoX = () => { ui.vInfo = ''; render(); };
+handlers.vretry = () => { vs.err = ''; vs.list = null; vs.failed.clear(); render(); };
+handlers.vtab = t => { ui.vTab = t; ui.vInfo = ''; render(); };
+handlers.vmode = m => { ui.vMode = m; ui.vInfo = ''; render(); };
+handlers.vgran = g => { ui.vGran = g; ui.vInfo = ''; render(); };
+handlers.vonly = () => { ui.vOnly = ui.vOnly === false; render(); };
+handlers.vfy = fy => { ui.vFY = Number(fy); ui.vInfo = ''; render(); };
+handlers.vdmon = ym => { if (ym) { ui.vDayYm = ym; ui.vInfo = ''; render(); } };
+handlers.vA = k => { ui.vA = k; ui.vInfo = ''; render(); };
+handlers.vB = k => { ui.vB = k; ui.vInfo = ''; render(); };
+handlers.vSite = k => { ui.vSite = k; render(); };
+const vInfoText = (name, when, a, b, d, unit, f) => `<b>${esc(name)}</b>・${when}：${esc(vKeyLabel(ui.vA))} <b>${f(a)}</b> → ${esc(vKeyLabel(ui.vB))} <b>${f(b)}</b> ${unit}（<b class="${d > 0 ? 'tup' : 'tdn'}">${V.fmtDiff(d)}</b>）`;
+handlers.vcellm = (key, ym) => { const d = ui.vDiff; if (!d) return; const i = d.months.indexOf(ym), r = key === '__tot' ? { name: '合計', cells: d.totals } : d.rows.find(x => x.key === key); if (!r) return; const x = r.cells[i];
+  ui.vInfo = vInfoText(r.name, V.ymJP(ym), x.a, x.b, x.d, '人/日', v => L.fmt1(v) || '0'); render(); };
+handlers.vcelld = (key, day) => { const d = ui.vDDiff; if (!d) return; const r = key === '__tot' ? { name: '合計', cells: d.totals } : d.rows.find(x => x.key === key); if (!r) return; const x = r.cells[Number(day) - 1];
+  ui.vInfo = vInfoText(r.name, `${V.ymJP(d.ym)}${day}日`, x.a, x.b, x.d, '人', v => String(v)); render(); };
 
 // ---------- 数字入力シート ----------
 function numberSheet({ title, value, step = 1, decimals = false, info = '', onOk }) {
