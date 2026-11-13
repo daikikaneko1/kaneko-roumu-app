@@ -2,12 +2,12 @@ import * as L from './logic.js';
 import { decryptSecret } from './crypto.js';
 import { GitHubStore, GitHubVersions, MemoryStore, MemoryVersions, Sync } from './store.js';
 import * as V from './versions.js';
-import { overlaySvg, totalSvg, legendHtml } from './ver-charts.js';
+import { overlaySvg, totalsSvg, legendHtml, TRADE_COLORS } from './ver-charts.js';
 import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone', groups: 'roumu.sumGroups', period: 'roumu.sumPeriod', pstart: 'roumu.sumStart', verOk: 'roumu.versionChecked' };
+const KEY = { pass: 'roumu.pass', pending: 'roumu.pending', who: 'roumu.who', showDone: 'roumu.showDone', groups: 'roumu.sumGroups', period: 'roumu.sumPeriod', pstart: 'roumu.sumStart', verOk: 'roumu.versionChecked', verTrade: 'roumu.verTrade' };
 const OPT = () => ({ includeDone: localStorage.getItem(KEY.showDone) === '1' });
 const WD = ['日', '月', '火', '水', '木', '金', '土'];
 let sync = null, saveTimer = null;
@@ -428,26 +428,32 @@ function vSum() {
     let start = per === '5' ? s.firstFY : per === '1' ? ui.sumFY : Number(localStorage.getItem(KEY.pstart) || s.firstFY);
     start = Math.min(Math.max(start, s.firstFY), last - years + 1);
     const months = L.periodMonths(start, years), data = L.groupSeries(doc, months, sel, OPTG());
-    const trades = [...new Set(data.series.map(x => x.trade))];
-    const targets = trades.length === 1 ? [{ value: s.targets?.[trades[0]] || 0, label: `${L.TRADES[trades[0]]}目標 ${s.targets?.[trades[0]] || 0}人` }].filter(t => t.value) : [];
+    // 土工と鳶工は山積みが別（それぞれの必要人数の目安）なので、合計・稼働予測・目標・余力は職種ごとに出す（両方を足した数は出さない）
+    const trades = Object.keys(L.TRADES).filter(t => data.series.some(x => x.trade === t));
     h += `<div class="tabs">${[['1', '1年'], ['3', '3カ年'], ['5', '5カ年']].map(([k, v]) => `<button data-a="period|${k}" class="${per === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
     if (per === '1') h += fyTabs(ui.sumFY, 'sfy');
     if (per === '3') h += `<div class="tabs">${Array.from({ length: s.years - 2 }, (_, i) => s.firstFY + i).map(fy => `<button data-a="pstart|${fy}" class="${start === fy ? 'on' : ''}">${fy}～${fy + 2}年度</button>`).join('')}</div>`;
-    h += `<h3>山積み ${start}年度${years > 1 ? `～${start + years - 1}年度` : ''}（${data.series.map(x => x.label).join('・')}）</h3>
-      <div class="legend">${data.series.map(x => `<span><i style="background:${x.color}"></i>${x.label}</span>`).join('')}<span><i style="background:#222;height:3px;vertical-align:4px"></i>合計</span>${targets.length ? `<span style="color:#c62828">--- 目標</span>` : ''}</div>
-      ${stackedChart(months, data, { targets })}${years > 1 ? '<p class="muted small">← 横にスクロールできます。縦の点線が年度の区切り（4月）。</p>' : ''}
-      <div class="tabs"><button data-a="est|calendar" class="${s.estimateMode !== 'fixed' ? 'on' : ''}">稼働予測：カレンダー</button><button data-a="est|fixed" class="${s.estimateMode === 'fixed' ? 'on' : ''}">稼働予測：×22日（Excel方式）</button></div>`;
+    if (trades.length > 1) h += '<p class="muted small" style="margin:4px 0">土工と鳶工は別々に出しています（足し合わせません）。</p>';
     const hd = months.map(ym => `<th class="${ym.endsWith('-04') ? 'fyb' : ''}">${years > 1 ? `${String(L.parseYm(ym).y).slice(2)}/` : ''}${L.parseYm(ym).m}月</th>`).join('');
     const row = (lb, arr, f = v => L.fmt1(v) || 0, cls = '') => `<tr class="${cls}"><td class="nm">${lb}</td>${arr.map((v, i) => `<td class="${months[i].endsWith('-04') ? 'fyb' : ''}">${f(v)}</td>`).join('')}</tr>`;
     const R = Math.round;
-    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">項目（人/日）</th>${hd}</tr></thead><tbody>
-      ${data.series.map(x => row(`<i class="sw" style="background:${x.color}"></i>${x.label}`, x.values)).join('')}
-      ${row('選択の合計', data.total, undefined, 'tot')}
-      ${row(`月間稼働予測（${s.estimateMode === 'fixed' ? '×22日' : 'カレンダー'}）`, data.est, R, 'tot')}
-      ${row('（比較）×22日', data.estFixed, R)}${row('（比較）カレンダー', data.estCalendar, R)}
-      ${row('会社の稼働日数', data.companyWd, v => v)}${targets.length ? row(`余力（目標${targets[0].value}人−合計）`, data.total.map(v => targets[0].value - v), v => `<span style="color:${v < 0 ? '#c62828' : 'inherit'}">${L.fmt1(v) || 0}</span>`) : ''}
-      </tbody></table></div>
-      <p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×その現場の稼働日）。×22日＝Excelと同じく 合計×22。</p>`;
+    trades.forEach((t, ti) => {
+      const td = trades.length > 1 ? L.groupSeries(doc, months, sel.filter(k => k.startsWith(t)), OPTG()) : data;
+      const tv = s.targets?.[t] || 0, targets = tv ? [{ value: tv, label: `${L.TRADES[t]}目標 ${tv}人` }] : [];
+      const tot = trades.length > 1 ? `${L.TRADES[t]}の合計` : '選択の合計';
+      h += `<h3 class="trade-h ${t}">${L.TRADES[t]}の山積み ${start}年度${years > 1 ? `～${start + years - 1}年度` : ''}（${td.series.map(x => x.label).join('・')}）</h3>
+        <div class="legend">${td.series.map(x => `<span><i style="background:${x.color}"></i>${x.label}</span>`).join('')}<span><i style="background:#222;height:3px;vertical-align:4px"></i>${tot}</span>${targets.length ? `<span style="color:#c62828">--- 目標</span>` : ''}</div>
+        ${stackedChart(months, td, { targets })}${years > 1 ? '<p class="muted small">← 横にスクロールできます。縦の点線が年度の区切り（4月）。</p>' : ''}`;
+      if (ti === 0) h += `<div class="tabs"><button data-a="est|calendar" class="${s.estimateMode !== 'fixed' ? 'on' : ''}">稼働予測：カレンダー</button><button data-a="est|fixed" class="${s.estimateMode === 'fixed' ? 'on' : ''}">稼働予測：×22日（Excel方式）</button></div>`;
+      h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">${trades.length > 1 ? L.TRADES[t] + '（人/日）' : '項目（人/日）'}</th>${hd}</tr></thead><tbody>
+        ${td.series.map(x => row(`<i class="sw" style="background:${x.color}"></i>${x.label}`, x.values)).join('')}
+        ${row(tot, td.total, undefined, 'tot')}
+        ${row(`月間稼働予測（${s.estimateMode === 'fixed' ? '×22日' : 'カレンダー'}）`, td.est, R, 'tot')}
+        ${row('（比較）×22日', td.estFixed, R)}${row('（比較）カレンダー', td.estCalendar, R)}
+        ${row('会社の稼働日数', td.companyWd, v => v)}${targets.length ? row(`余力（目標${targets[0].value}人−合計）`, td.total.map(v => targets[0].value - v), v => `<span style="color:${v < 0 ? '#c62828' : 'inherit'}">${L.fmt1(v) || 0}</span>`) : ''}
+        </tbody></table></div>`;
+    });
+    h += `<p class="muted small">月間稼働予測：カレンダー＝日別の人工（日別でない年度は 平均×その現場の稼働日）。×22日＝Excelと同じく 合計×22。</p>`;
     h += salesSection(doc, data, months, years, start);
   } else {
     const months = L.dailyMonths(doc); if (!months.length) return h + '<p class="card">日別で見られる月がありません</p>';
@@ -456,9 +462,9 @@ function vSum() {
     const trades = Object.keys(L.TRADES).filter(t => sel.some(k => k.startsWith(t)));
     h += monthNav(ui.sumYm, 'symon', months);
     for (const t of trades) h += `<h3>${L.TRADES[t]}（人）${sel.filter(k => k.startsWith(t)).length === 1 ? '・' + L.GROUPS.find(g => sel.includes(g.key) && g.trade === t).label.split(' ')[1] : ''}</h3>` + barChart(dates.map(d => Number(d.slice(8))), [{ values: dt.map(x => x[t]), color: `var(--${t})` }], { target: s.targets?.[t], unit: '人' });
-    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">日</th>${trades.map(t => `<th>${L.TRADES[t]}</th>`).join('')}<th>合計</th></tr></thead><tbody>
-      ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td>${trades.map(t => `<td>${dt[i][t] || ''}</td>`).join('')}<td>${trades.reduce((a, t) => a + dt[i][t], 0) || ''}</td></tr>`; }).join('')}
-      <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}<td>${dt.reduce((a, x) => a + trades.reduce((b, t) => b + x[t], 0), 0)}</td></tr></tbody></table></div>`;
+    h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">日</th>${trades.map(t => `<th>${L.TRADES[t]}</th>`).join('')}</tr></thead><tbody>
+      ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td>${trades.map(t => `<td>${dt[i][t] || ''}</td>`).join('')}</tr>`; }).join('')}
+      <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}</tr></tbody></table></div>${trades.length > 1 ? '<p class="muted small">土工と鳶工は別々に出しています（足し合わせません）。</p>' : ''}`;
   }
   h += `<button class="wide" data-a="go|ver">🗂️ 版の比較（月ごとに残した山積みの変化を見る）</button>`;
   h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ 日別CSV</button>`;
@@ -581,14 +587,15 @@ function vMat(k) {
   if (!vs.cache[k]) return null; return vs.mats[k] || (vs.mats[k] = V.siteMatrix(vs.cache[k].data, k));
 }
 const vDoc = k => (k === V.CURRENT ? D() : vs.cache[k] && vs.cache[k].data);
-const VMODES = { doko: '土工', tobi: '鳶工', all: '合計' };
+// 土工と鳶工は山積みが別（それぞれの必要人数の目安）なので、版の比較・グラフでも足し合わせない
+const VMODES = { doko: '土工', tobi: '鳶工' };
+const vTrade = () => (VMODES[ui.vMode] ? ui.vMode : (ui.vMode = VMODES[localStorage.getItem(KEY.verTrade)] ? localStorage.getItem(KEY.verTrade) : 'doko'));
 const VLEG = '<div class="legend vleg"><span><b class="vd up">+3</b> 増えた（青）</span><span><b class="vd dn">−2</b> 減った（赤）</span><span>空欄＝同じ</span></div>';
 const vInfoBox = () => (ui.vInfo ? `<div class="card vinfo"><div>${ui.vInfo}</div><button data-a="vinfoX" aria-label="閉じる">✕</button></div>` : '');
-const vModeTabs = () => `<div class="tabs vmode ${ui.vMode === 'all' ? '' : ui.vMode}">${Object.entries(VMODES).map(([k, v]) => `<button data-a="vmode|${k}" class="${ui.vMode === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
-const tradeChip = ts => ts.map(t => `<span class="tchip ${t}">${t === 'doko' ? '土工' : '鳶'}</span>`).join('');
+const vModeTabs = () => `<div class="tabs vmode ${vTrade()}">${Object.entries(VMODES).map(([k, v]) => `<button data-a="vmode|${k}" class="${ui.vMode === k ? 'on' : ''}">${v}</button>`).join('')}</div>`;
 function vVer() {
   if (!vs.list) { if (!vs.err) vLoadList(); return `<h2>版の比較</h2>${vs.err ? `<p class="card warn">${esc(vs.err)}</p><button class="wide" data-a="vretry">もう一度読み込む</button>` : '<p class="center muted">版を読み込み中…</p>'}`; }
-  ui.vMode = ui.vMode || 'all'; ui.vTab = ui.vTab || 'cmp';
+  vTrade(); ui.vTab = ui.vTab || 'cmp';
   const list = vs.list, keys = [...list, V.CURRENT];
   let h = `<h2>版の比較</h2><p class="muted small" style="margin:0 0 6px">毎月1日の山積みを「版」として自動で残しています（${list.length}件）。版は見るだけです（直すのはいつもの画面）。</p>
     <div class="tabs vtab"><button data-a="vtab|cmp" class="${ui.vTab === 'cmp' ? 'on' : ''}">🔍 2つの版を比べる</button><button data-a="vtab|trend" class="${ui.vTab === 'trend' ? 'on' : ''}">📈 推移グラフ</button></div>${vModeTabs()}`;
@@ -611,7 +618,7 @@ function vCompare(keys) {
 function vOnlyToggle(c) { const on = ui.vOnly !== false; return `<button class="wide toggle ${on ? 'on' : ''}" data-a="vonly" aria-pressed="${on}">${on ? '☑' : '☐'} 変わった現場だけ表示 <small>（変わらない現場 ${c.unchanged}件${on ? 'を非表示' : 'も表示中'}）</small></button>`; }
 function vNameCell(r, extra = '') {
   const st = r.status === 'added' ? '<span class="badge vnew">新規</span>' : r.status === 'removed' ? '<span class="badge vgone">削除</span>' : '';
-  return `<td class="nm vnm">${ui.vMode === 'all' ? tradeChip(r.trades) : ''}${esc(r.name)}${r.done ? ' <span class="badge done">竣工</span>' : ''} ${st}${r.shift && r.shift.texts.length ? `<div class="vshift">${r.shift.texts.map(t => `<span class="${/遅れ|延長/.test(t) ? 'late' : /前倒し/.test(t) ? 'early' : ''}">${esc(t)}</span>`).join('')}</div>` : ''}${extra}</td>`;
+  return `<td class="nm vnm">${esc(r.name)}${r.done ? ' <span class="badge done">竣工</span>' : ''} ${st}${r.shift && r.shift.texts.length ? `<div class="vshift">${r.shift.texts.map(t => `<span class="${/遅れ|延長/.test(t) ? 'late' : /前倒し/.test(t) ? 'early' : ''}">${esc(t)}</span>`).join('')}</div>` : ''}${extra}</td>`;
 }
 const vCell = (d, a, b, unit, dataA) => `<td class="vd ${d > 0 ? 'up' : d < 0 ? 'dn' : ''}" ${d ? `data-a="${dataA}"` : ''} title="${L.fmt1(a) || 0} → ${L.fmt1(b) || 0}${unit}">${V.fmtDiff(d)}</td>`;
 function vCompareMonth(mA, mB) {
@@ -629,7 +636,7 @@ function vCompareMonth(mA, mB) {
   h += `<div class="grid-wrap"><table class="grid vt"><thead><tr><th class="nm">工事名</th>${months.map(ym => `<th>${L.parseYm(ym).m}月</th>`).join('')}</tr></thead><tbody>`;
   if (!rows.length) h += `<tr><td class="nm vnm">変わった現場はありません</td>${months.map(() => '<td></td>').join('')}</tr>`;
   for (const r of rows) h += `<tr class="${r.status}">${vNameCell(r)}${idx.map(i => { const x = r.cells[i]; return vCell(x.d, x.a, x.b, '人/日', `vcellm|${r.key}|${x.ym}`); }).join('')}</tr>`;
-  h += `<tr class="tot">${'<td class="nm">合計（人/日）</td>'}${idx.map(i => { const x = diff.totals[i]; return vCell(x.d, x.a, x.b, '人/日', `vcellm|__tot|${x.ym}`); }).join('')}</tr></tbody></table></div>
+  h += `<tr class="tot"><td class="nm">${VMODES[vTrade()]}合計（人/日）</td>${idx.map(i => { const x = diff.totals[i]; return vCell(x.d, x.a, x.b, '人/日', `vcellm|__tot|${x.ym}`); }).join('')}</tr></tbody></table></div>
     <p class="muted small">数字は「後−前」の 1日あたり平均の人数（人/日）。工期のずれは、人数が入っている最初の月と最後の月で見ています。</p>${vInfoBox()}`;
   ui.vDiff = diff;
   return h;
@@ -646,7 +653,7 @@ function vCompareDay() {
   if (!rows.length) h += `<tr><td class="nm vnm">変わった現場はありません</td>${dates.map(() => '<td></td>').join('')}<td></td></tr>`;
   for (const r of rows) h += `<tr class="${r.status}">${vNameCell(r)}${r.cells.map(x => vCell(x.d, x.a, x.b, '人', `vcelld|${r.key}|${x.day}`)).join('')}${vCell(r.sumB - r.sumA, r.sumA, r.sumB, '人工', '')}</tr>`;
   const tA = diff.totals.reduce((a, x) => a + x.a, 0), tB = diff.totals.reduce((a, x) => a + x.b, 0);
-  h += `<tr class="tot"><td class="nm">合計（人）</td>${diff.totals.map(x => vCell(x.d, x.a, x.b, '人', `vcelld|__tot|${x.day}`)).join('')}${vCell(tB - tA, tA, tB, '人工', '')}</tr></tbody></table></div>${vInfoBox()}`;
+  h += `<tr class="tot"><td class="nm">${VMODES[vTrade()]}合計（人）</td>${diff.totals.map(x => vCell(x.d, x.a, x.b, '人', `vcelld|__tot|${x.day}`)).join('')}${vCell(tB - tA, tA, tB, '人工', '')}</tr></tbody></table></div>${vInfoBox()}`;
   ui.vDDiff = diff;
   return h;
 }
@@ -657,26 +664,36 @@ function vTrend(keys) {
   const cur = vMat(V.CURRENT), last = mats[mats.length - 1];
   const same = last && JSON.stringify(last.sites.map(s => [s.id, s.values])) === JSON.stringify(cur.sites.map(s => [s.id, s.values]));
   if (!same) mats = [...mats, cur];
-  const picks = V.sitePicks(mats, ui.vMode);
+  const T = vTrade(), TN = VMODES[T], allName = `${TN}の全現場（合計）`;
+  const picks = V.sitePicks(mats, T);
   if (ui.vSite !== V.ALL && !picks.some(p => p.key === ui.vSite)) ui.vSite = V.ALL;
   ui.vSite = ui.vSite || V.ALL;
-  const series = V.trendSeries(mats, ui.vMode, ui.vSite);
+  const series = V.trendSeries(mats, T, ui.vSite);
   const months = [...new Set(mats.flatMap(m => m.months))].sort();
   const tm = V.trendMonths(series, months);
-  const name = ui.vSite === V.ALL ? `全現場の合計（${VMODES[ui.vMode]}）` : (picks.find(p => p.key === ui.vSite) || {}).name;
-  let h = `<label class="f">現場をえらぶ</label><select id="vsite" data-ch="vSite">${[{ key: V.ALL, name: `全現場の合計（${VMODES[ui.vMode]}）` }, ...picks].map(p => `<option value="${esc(p.key)}" ${p.key === ui.vSite ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`;
-  h += `<h3>① 版ごとの計画線：${esc(name)}</h3><p class="muted small" style="margin:0">うすい線＝古い版、黒い太線＝${same ? '最新の版' : '現在（まだ版になっていない変更を含む）'}。線が右にずれたら工期が遅れ、上がったら人数が増えています。</p>`;
-  h += V.trendMonths(series, months).length ? legendHtml(series) : '';
+  const name = ui.vSite === V.ALL ? allName : (picks.find(p => p.key === ui.vSite) || {}).name;
+  let h = `<label class="f">現場をえらぶ（${TN}）</label><select id="vsite" data-ch="vSite">${[{ key: V.ALL, name: allName }, ...picks].map(p => `<option value="${esc(p.key)}" ${p.key === ui.vSite ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`;
+  h += `<h3>① 版ごとの計画線：${esc(name)}</h3><p class="muted small" style="margin:0">${TN}だけの人数（人/日）。うすい線＝古い版、黒い太線＝${same ? '最新の版' : '現在（まだ版になっていない変更を含む）'}。線が右にずれたら工期が遅れ、上がったら人数が増えています。</p>`;
+  h += tm.length ? legendHtml(series) : '';
   h += overlaySvg(series, tm, { avail: chartAvail() });
   if (52 + 22 * tm.length > chartAvail()) h += '<p class="muted small">← 横にスクロールできます。</p>';
-  h += `<h3>② 版ごとの人工合計の推移：${esc(name)}</h3><p class="muted small" style="margin:0">1つの版＝1つの点。5カ年の人工（人数×稼働日）の合計です。前の版より <b class="tup">増えた＝青</b>・<b class="tdn">減った＝赤</b>。</p>`;
-  h += totalSvg(series.map(s => ({ label: s.label, short: vShort(s.key || ''), v: s.ninkuTotal })).map((p, i) => ({ ...p, short: vShort(mats[i].key) })), { avail: chartAvail() });
+  const shorts = mats.map(m => vShort(m.key));
+  let lines;
+  if (ui.vSite === V.ALL) { // 土工と鳶工は別の線（足さない）
+    lines = Object.keys(VMODES).map(t => ({ label: `${VMODES[t]}（全現場）`, color: TRADE_COLORS[t], bold: t === T, values: V.trendSeries(mats, t, V.ALL).map(x => x.ninkuTotal) }));
+    h += `<h3>② 版ごとの人工合計の推移：土工・鳶工（別々）</h3><p class="muted small" style="margin:0">1つの版＝1つの点。5カ年の人工（人数×稼働日）の合計を、<b style="color:${TRADE_COLORS.doko}">土工</b>と<b style="color:${TRADE_COLORS.tobi}">鳶工</b>で別々に出しています（足していません）。（ ）は前の版との差。</p>`;
+    h += `<div class="legend">${lines.map(l => `<span><i style="background:${l.color}"></i>${l.label}</span>`).join('')}</div>`;
+  } else {
+    lines = [{ label: name, color: TRADE_COLORS[T], bold: true, values: series.map(x => (x.present ? x.ninkuTotal : null)) }];
+    h += `<h3>② 版ごとの人工合計の推移：${esc(name)}（${TN}）</h3><p class="muted small" style="margin:0">1つの版＝1つの点。5カ年の人工（人数×稼働日）の合計。（ ）は前の版との差。</p>`;
+  }
+  h += totalsSvg(lines, shorts, { avail: chartAvail() });
   return h;
 }
 handlers.vinfoX = () => { ui.vInfo = ''; render(); };
 handlers.vretry = () => { vs.err = ''; vs.list = null; vs.failed.clear(); render(); };
 handlers.vtab = t => { ui.vTab = t; ui.vInfo = ''; render(); };
-handlers.vmode = m => { ui.vMode = m; ui.vInfo = ''; render(); };
+handlers.vmode = m => { if (!VMODES[m]) return; ui.vMode = m; localStorage.setItem(KEY.verTrade, m); ui.vInfo = ''; render(); };
 handlers.vgran = g => { ui.vGran = g; ui.vInfo = ''; render(); };
 handlers.vonly = () => { ui.vOnly = ui.vOnly === false; render(); };
 handlers.vfy = fy => { ui.vFY = Number(fy); ui.vInfo = ''; render(); };
