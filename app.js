@@ -135,14 +135,14 @@ const ymJP = ym => { const { y, m } = L.parseYm(ym); return `${y}年${m}月`; };
 // ---------- 現場一覧 ----------
 function vList() {
   const doc = D(); const ym = curYm();
-  let h = `<h2>現場一覧</h2>${tradeTabs()}${doneToggle(ui.trade)}`;
+  let h = `<h2>現場一覧</h2>${tradeTabs()}${doneToggle(ui.trade)}<p class="muted small sort-note">並び：開始が早い順（工期（始）。空なら人数が入った最初の月。どちらも無い現場は最後）</p>`;
   for (const cat of L.CATEGORIES) {
     const list = L.sortedSites(doc, ui.trade, OPT()).filter(s => s.category === cat);
     h += `<h3>${cat}（${list.length}件）</h3><div class="sitelist">`;
     for (const s of list) {
       const mi = L.monthInfo(doc, s, ym);
       h += `<div class="card site" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span>
-        <div><div class="nm">${esc(s.name)}${divBadge(s)}${doneBadge(s)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
+        <div><div class="nm">${esc(s.name)}${divBadge(s)}${doneBadge(s)}</div><div class="meta">部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}${s.kessai ? `　決裁者:${esc(s.kessai)}` : ''}<br>工期:${esc(s.start || '')}${s.start || s.end ? '～' : '－'}${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}</div></div>
         <div class="now">${L.parseYm(ym).m}月<b>${L.fmt1(mi.value) || '0'}</b>人/日</div></div>`;
     }
     h += '</div>';
@@ -157,7 +157,7 @@ function vSite(id) {
   ui.trade = s.trade;
   let h = `<button data-a="go|list">‹ 一覧</button>
     <div class="card"><div class="site"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span><div><div class="nm">${esc(s.name)}${divBadge(s)}${doneBadge(s)}</div>
-    <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}・${L.DIVISIONS[L.divisionOf(s)]}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
+    <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}・${L.DIVISIONS[L.divisionOf(s)]}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}　決裁者:${esc(s.kessai || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
     <button class="wide" data-a="go|edit/${s.id}">✏️ 現場の情報を直す</button>
     ${L.isDone(s) ? `<p class="muted small">この現場は竣工です（一覧・集計では「竣工も表示」をオンにしたときだけ出ます）。</p><button class="wide" data-a="doneUnset|${s.id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${s.id}">🏁 竣工にする</button>`}</div>
     <h3>月別の人数（1日あたり平均）</h3>${fyTabs(ui.fy, 'fy')}<div class="monthrows">`;
@@ -211,7 +211,7 @@ function vEdit(id) {
    <label class="f">工事部（社内）</label><div class="chips big2">${['1', '2'].map(k => `<button data-a="dset|division|${k}" class="${d.division === k ? 'on' : ''}">${L.DIVISIONS[k]}</button>`).join('')}</div>
    <label class="f">区分</label>${chips('kubun', L.KUBUN)}
    <p class="muted small">入=入場中 現=施工中 指=指名 計=計画 営=営業中（Excelと同じ記号）</p>
-   ${tx('name', '工事名（必須）')}${tx('bu', '部', '例：1、特、RN')}${tx('shocho', '所長')}${tx('shokucho', '職長')}
+   ${tx('name', '工事名（必須）')}${tx('bu', '部', '例：1、特、RN')}${tx('shocho', '所長', '名前（空でもよい）')}${tx('kessai', '決裁者', '名前（空でもよい）')}${tx('shokucho', '職長')}
    <div class="flex"><div>${tx('start', '工期（始）', 'R08.06')}</div><div>${tx('end', '工期（終）', 'R10.12')}</div></div>
    <label class="f">月数</label><input type="number" inputmode="decimal" data-k="months" value="${esc(d.months ?? '')}">
    ${tx('note', 'メモ')}
@@ -230,7 +230,7 @@ handlers.dset = (k, v) => { readDraft(); draft[k] = v; if (k === 'division') dra
 handlers.dsave = () => {
   readDraft(); if (!draft.name) { alert('工事名を入れてください'); return; }
   const isNew = draft._for === 'new'; const id = isNew ? L.newId() : draft.id;
-  const f = {}; for (const k of ['trade', 'category', 'division', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
+  const f = {}; for (const k of ['trade', 'category', 'division', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'kessai', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
   f.week = L.cleanWeek(draft.week); f.unitPrice = L.cleanPrice(draft.unitPrice);
   if (draft.unitPrice != null && draft.unitPrice !== '' && !f.unitPrice) { alert('単価は 1円以上の数字で入れてください（空なら設定の単価を使います）'); return; }
   if (isNew) f.order = Math.max(0, ...D().sites.map(s => s.order ?? 0)) + 1;

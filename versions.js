@@ -39,7 +39,7 @@ export function siteMatrix(doc, key = CURRENT) {
     const sites = L.sortedSites(doc, null, { includeDone: true }).map(s => {
       const values = {}, ninku = {};
       for (const ym of months) { const mi = L.monthInfo(doc, s, ym); if (mi.value) values[ym] = mi.value; if (mi.ninku) ninku[ym] = mi.ninku; }
-      return { id: s.id, name: s.name, trade: s.trade, category: s.category, kubun: s.kubun, done: L.isDone(s), values, ninku };
+      return { id: s.id, name: s.name, trade: s.trade, category: s.category, kubun: s.kubun, done: L.isDone(s), startYm: L.siteStartYm(s), order: s.order, values, ninku };
     });
     return { key, months, sites };
   });
@@ -48,8 +48,11 @@ export function siteMatrix(doc, key = CURRENT) {
 export const TRADE_MODES = ['doko', 'tobi'];
 export function rowsOf(mat, trade) {
   if (!TRADE_MODES.includes(trade)) throw new Error('trade must be doko or tobi');
-  return mat.sites.filter(s => s.trade === trade).map(s => ({ key: s.id, name: s.name, trades: [s.trade], done: s.done, kubun: s.kubun, values: s.values, ninku: s.ninku }));
+  return mat.sites.filter(s => s.trade === trade).map(s => ({ key: s.id, name: s.name, trades: [s.trade], done: s.done, kubun: s.kubun, sk: sortKeyOf(s), values: s.values, ninku: s.ninku }));
 }
+// 並びのキー（開始が早い順・開始なしは最後・同じなら今までの順）。古い版の写しでも、その版のデータから計算
+function sortKeyOf(s) { return { trade: s.trade, category: s.category, startYm: s.startYm !== undefined ? s.startYm : null, order: s.order }; }
+const byStart = (get) => (x, y) => L.compareSites(get(x), get(y));
 const EPS = 0.05; // 0.1人/日 未満の違いは「変わらない」
 export const roundD = v => Math.round(v * 10) / 10;
 // 差の表示：+3 / −2 / +0.5（マイナスは全角でなく「−」U+2212）
@@ -77,6 +80,7 @@ export function diffMonthly(matA, matB, mode) {
   const ra = rowsOf(matA, mode), rb = rowsOf(matB, mode);
   const ma = new Map(ra.map(r => [r.key, r])), keys = [...rb.map(r => r.key), ...ra.filter(r => !rb.some(x => x.key === r.key)).map(r => r.key)];
   const mb = new Map(rb.map(r => [r.key, r]));
+  keys.sort(byStart(k => (mb.get(k) || ma.get(k)).sk)); // 削除された現場も開始の順に混ぜる
   const rows = keys.map(k => {
     const a = ma.get(k), b = mb.get(k), ref = b || a;
     const cells = months.map(ym => { const av = a ? a.values[ym] || 0 : 0, bv = b ? b.values[ym] || 0 : 0, d = roundD(bv - av); return { ym, a: av, b: bv, d: Math.abs(d) < EPS ? 0 : d }; });
@@ -84,7 +88,7 @@ export function diffMonthly(matA, matB, mode) {
     const status = !a ? 'added' : !b ? 'removed' : '';
     const shift = a && b ? scheduleShift(a.values, b.values, months) : { start: 0, end: 0, texts: [] }; // 新規・削除はバッジで示す
     const nChanged = cells.filter(c => c.d).length;
-    return { key: k, name: ref.name, trades: ref.trades, done: ref.done, kubun: ref.kubun, status, shift, cells, nChanged, ninkuA: nA, ninkuB: nB, changed: !!(status || nChanged || shift.start || shift.end) };
+    return { key: k, name: ref.name, trades: ref.trades, done: ref.done, kubun: ref.kubun, sk: ref.sk, status, shift, cells, nChanged, ninkuA: nA, ninkuB: nB, changed: !!(status || nChanged || shift.start || shift.end) };
   });
   const totals = months.map((ym, i) => { const a = rows.reduce((x, r) => x + r.cells[i].a, 0), b = rows.reduce((x, r) => x + r.cells[i].b, 0), d = roundD(b - a); return { ym, a, b, d: Math.abs(d) < EPS ? 0 : d }; });
   const ninkuA = rows.reduce((x, r) => x + r.ninkuA, 0), ninkuB = rows.reduce((x, r) => x + r.ninkuB, 0);
@@ -103,7 +107,7 @@ function dailyRows(doc, key, ym, mode) {
     for (const s of L.sortedSites(doc, mode, { includeDone: true })) {
       const k = s.id;
       const arr = L.inWindow(doc, ym) ? L.dailyOf(doc, s, ym) : [];
-      let r = out.get(k); if (!r) { r = { key: k, name: s.name, trades: [], done: L.isDone(s), days: new Array(n).fill(0) }; out.set(k, r); }
+      let r = out.get(k); if (!r) { r = { key: k, name: s.name, trades: [], done: L.isDone(s), sk: { trade: s.trade, category: s.category, startYm: L.siteStartYm(s), order: s.order }, days: new Array(n).fill(0) }; out.set(k, r); }
       r.trades = [s.trade];
       for (let i = 0; i < n; i++) r.days[i] = Number(arr[i]) || 0;
     }
@@ -113,6 +117,7 @@ function dailyRows(doc, key, ym, mode) {
 export function diffDaily(docA, keyA, docB, keyB, ym, mode) {
   const ra = dailyRows(docA, keyA, ym, mode), rb = dailyRows(docB, keyB, ym, mode), n = L.daysInMonth(ym);
   const keys = [...rb.keys(), ...[...ra.keys()].filter(k => !rb.has(k))];
+  keys.sort(byStart(k => (rb.get(k) || ra.get(k)).sk));
   const rows = keys.map(k => {
     const a = ra.get(k), b = rb.get(k), ref = b || a;
     const cells = Array.from({ length: n }, (_, i) => { const av = a ? a.days[i] : 0, bv = b ? b.days[i] : 0; return { day: i + 1, a: av, b: bv, d: bv - av }; });
@@ -128,8 +133,8 @@ export const ALL = '__all__';
 // 現場の選択肢（どの版にも出てくる現場。新しい版の名前を使う）
 export function sitePicks(mats, mode) {
   const m = new Map();
-  for (const mat of mats) for (const r of rowsOf(mat, mode)) m.set(r.key, r.name);
-  return [...m.entries()].map(([key, name]) => ({ key, name }));
+  for (const mat of mats) for (const r of rowsOf(mat, mode)) m.set(r.key, r); // 新しい版の名前・開始を使う
+  return [...m.values()].sort(byStart(r => r.sk)).map(r => ({ key: r.key, name: r.name }));
 }
 // 版ごとの 計画線（月→人/日）と 人工合計。key＝ALL ならその職種の全現場の合計（土工と鳶工は足さない）
 export function trendSeries(mats, mode, key) {
