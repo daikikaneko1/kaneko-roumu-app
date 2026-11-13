@@ -36,25 +36,40 @@ export function overlaySvg(series, months, { avail = 680, unit = '人/日' } = {
   g += `<text x="${pl}" y="${H - 6}" font-size="11" fill="#777">月（${unit}・1日あたり平均）</text></svg>`;
   return `<div class="chart-scroll">${g}</div>`;
 }
-// 2) 版ごとの人工合計の推移：1つの版＝1つの点。points = [{ label, short, v }]（古い順）
-export function totalSvg(points, { avail = 680 } = {}) {
-  if (!points.length) return '';
-  const n = points.length, pl = 46, pr = 14, pt = 30, pb = 40, H = 220;
-  const bw = Math.max((avail - pl - pr) / n, 54), W = Math.max(avail, Math.round(pl + pr + bw * n));
-  const vals = points.map(p => p.v), hi = Math.max(...vals), lo = Math.min(...vals);
+// 2) 版ごとの人工合計の推移：1つの版＝1つの点。lines = [{ label, color, bold, values: [数 or null（その版に無い）] }]、shorts＝版の短い名前（古い順）
+// 土工と鳶工は別の線（足さない）。前の版との差は「+26」「−170」と符号つきの文字でも出す
+export const TRADE_COLORS = { doko: '#D55E00', tobi: '#0072B2' };
+export function totalsSvg(lines, shorts, { avail = 680 } = {}) {
+  const n = shorts.length; if (!n || !lines.length) return '';
+  const pl = 50, pr = 16, pt = 30, pb = 52, H = lines.length > 1 ? 290 : 230;
+  const bw = Math.max((avail - pl - pr) / n, 58), W = Math.max(avail, Math.round(pl + pr + bw * n));
+  const vals = lines.flatMap(l => l.values).filter(v => v != null); if (!vals.length) return '';
+  const hi = Math.max(...vals), lo = Math.min(...vals);
   const pad = Math.max((hi - lo) * 0.3, hi * 0.03, 1), step = niceMax((hi - lo + 2 * pad) / 4);
   const bot = Math.max(0, Math.floor((lo - pad) / step) * step), top = Math.max(bot + step * 4, Math.ceil((hi + pad) / step) * step);
-  const X = i => pl + bw * i + bw / 2, Y = v => pt + (H - pt - pb) * (1 - (v - bot) / (top - bot || 1));
+  const X = i => pl + bw * i + bw / 2, Y = v => pt + 14 + (H - pt - 14 - pb) * (1 - (v - bot) / (top - bot || 1));
   let g = `<svg class="chart vchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="版ごとの人工合計" style="width:${W}px;max-width:none">`;
   for (let k = 0; k <= 4; k++) { const v = bot + (top - bot) * k / 4; g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e3e7ee"/><text x="${pl - 4}" y="${Y(v) + 4}" font-size="11" text-anchor="end" fill="#777">${Math.round(v).toLocaleString('ja-JP')}</text>`; }
-  g += `<polyline points="${points.map((p, i) => `${X(i)},${Y(p.v)}`).join(' ')}" fill="none" stroke="#111" stroke-width="2.5"/>`;
-  points.forEach((p, i) => {
-    const d = i ? p.v - points[i - 1].v : 0, cls = Math.abs(d) < 0.5 ? '' : d > 0 ? 'up' : 'dn';
-    g += `<circle cx="${X(i)}" cy="${Y(p.v)}" r="${i === n - 1 ? 6 : 4.5}" fill="${cls === 'up' ? '#0B5CAD' : cls === 'dn' ? '#B3261E' : '#111'}"/>`;
-    g += `<text x="${X(i)}" y="${Y(p.v) - 10}" font-size="12" font-weight="700" text-anchor="middle" fill="#222">${Math.round(p.v).toLocaleString('ja-JP')}</text>`;
-    if (i) g += `<text x="${X(i)}" y="${Y(p.v) + 20}" font-size="11" text-anchor="middle" fill="${cls === 'up' ? '#0B5CAD' : cls === 'dn' ? '#B3261E' : '#777'}">${cls ? (d > 0 ? '+' : '−') + Math.round(Math.abs(d)).toLocaleString('ja-JP') : '±0'}</text>`;
-    g += `<text x="${X(i)}" y="${H - pb + 16}" font-size="11" text-anchor="middle" fill="#444">${esc(p.short)}</text>`;
+  const fmt = v => Math.round(v).toLocaleString('ja-JP');
+  const mean = l => { const v = l.values.filter(x => x != null); return v.reduce((a, b) => a + b, 0) / (v.length || 1); };
+  const topLine = lines.reduce((a, l) => (mean(l) > mean(a) ? l : a), lines[0]);
+  lines.forEach(l => {
+    const below = lines.length > 1 && l !== topLine; // 2本のときは下の線の数字を点の下に（重ならないように）
+    const pts = l.values.map((v, i) => (v == null ? null : `${X(i)},${Y(v)}`)).filter(Boolean).join(' ');
+    g += `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="${l.bold ? 3 : 2}" data-line="${esc(l.label)}"><title>${esc(l.label)}</title></polyline>`;
+    l.values.forEach((v, i) => {
+      if (v == null) return;
+      const prev = i ? l.values[i - 1] : null, d = prev == null ? null : v - prev;
+      g += `<circle cx="${X(i)}" cy="${Y(v)}" r="${i === n - 1 ? 5.5 : 4}" fill="${l.color}"/>`;
+      const dt = d == null ? '' : `（${Math.abs(d) < 0.5 ? '±0' : (d > 0 ? '+' : '−') + fmt(Math.abs(d))}）`;
+      const y1 = below ? Y(v) + 17 : Y(v) - (dt ? 21 : 9), y2 = y1 + 12;
+      g += `<text x="${X(i)}" y="${y1}" font-size="11" font-weight="700" text-anchor="middle" fill="${l.color}">${fmt(v)}</text>`;
+      if (dt) g += `<text x="${X(i)}" y="${y2}" font-size="10" text-anchor="middle" fill="${l.color}">${dt}</text>`;
+    });
   });
-  g += `<text x="${pl}" y="${H - 6}" font-size="11" fill="#777">版（人工＝5カ年の合計）</text></svg>`;
+  shorts.forEach((t, i) => { g += `<text x="${X(i)}" y="${H - pb + 16}" font-size="11" text-anchor="middle" fill="#444">${esc(t)}</text>`; });
+  g += `<text x="${pl}" y="${H - 6}" font-size="11" fill="#777">版（人工＝5カ年の合計。（ ）は前の版との差）</text></svg>`;
   return `<div class="chart-scroll">${g}</div>`;
 }
+// 1本だけのとき（互換）
+export function totalSvg(points, opt = {}) { return totalsSvg([{ label: '人工', color: '#111', bold: true, values: points.map(p => p.v) }], points.map(p => p.short), opt); }

@@ -44,20 +44,11 @@ export function siteMatrix(doc, key = CURRENT) {
     return { key, months, sites };
   });
 }
-export const normName = n => String(n || '').normalize('NFKC').replace(/\s+/g, '').trim();
-// 表示の行：土工・鳶工はその職種の現場（id でつなぐ）。合計は同じ工事名の土工＋鳶工を1行にまとめる
-export function rowsOf(mat, mode) {
-  if (mode !== 'all') return mat.sites.filter(s => s.trade === mode).map(s => ({ key: s.id, name: s.name, trades: [s.trade], done: s.done, kubun: s.kubun, values: s.values, ninku: s.ninku }));
-  const m = new Map();
-  for (const s of mat.sites) {
-    const k = normName(s.name); let r = m.get(k);
-    if (!r) { r = { key: 'n:' + k, name: s.name, trades: [], done: true, kubun: s.kubun, values: {}, ninku: {} }; m.set(k, r); }
-    if (!r.trades.includes(s.trade)) r.trades.push(s.trade);
-    r.done = r.done && s.done;
-    for (const [ym, v] of Object.entries(s.values)) r.values[ym] = (r.values[ym] || 0) + v;
-    for (const [ym, v] of Object.entries(s.ninku)) r.ninku[ym] = (r.ninku[ym] || 0) + v;
-  }
-  return [...m.values()];
+// 表示の行：その職種の現場だけ（id でつなぐ）。土工と鳶工は山積みが別なので、足し合わせない
+export const TRADE_MODES = ['doko', 'tobi'];
+export function rowsOf(mat, trade) {
+  if (!TRADE_MODES.includes(trade)) throw new Error('trade must be doko or tobi');
+  return mat.sites.filter(s => s.trade === trade).map(s => ({ key: s.id, name: s.name, trades: [s.trade], done: s.done, kubun: s.kubun, values: s.values, ninku: s.ninku }));
 }
 const EPS = 0.05; // 0.1人/日 未満の違いは「変わらない」
 export const roundD = v => Math.round(v * 10) / 10;
@@ -108,12 +99,13 @@ export function commonDailyMonths(docA, keyA, docB, keyB) { const b = new Set(da
 function dailyRows(doc, key, ym, mode) {
   return L.withToday(asOfOf(key), () => {
     const n = L.daysInMonth(ym), out = new Map();
-    for (const s of L.sortedSites(doc, mode === 'all' ? null : mode, { includeDone: true })) {
-      const k = mode === 'all' ? 'n:' + normName(s.name) : s.id;
+    if (!TRADE_MODES.includes(mode)) throw new Error('trade must be doko or tobi');
+    for (const s of L.sortedSites(doc, mode, { includeDone: true })) {
+      const k = s.id;
       const arr = L.inWindow(doc, ym) ? L.dailyOf(doc, s, ym) : [];
       let r = out.get(k); if (!r) { r = { key: k, name: s.name, trades: [], done: L.isDone(s), days: new Array(n).fill(0) }; out.set(k, r); }
-      if (!r.trades.includes(s.trade)) r.trades.push(s.trade);
-      for (let i = 0; i < n; i++) r.days[i] += Number(arr[i]) || 0;
+      r.trades = [s.trade];
+      for (let i = 0; i < n; i++) r.days[i] = Number(arr[i]) || 0;
     }
     return out;
   });
@@ -139,13 +131,13 @@ export function sitePicks(mats, mode) {
   for (const mat of mats) for (const r of rowsOf(mat, mode)) m.set(r.key, r.name);
   return [...m.entries()].map(([key, name]) => ({ key, name }));
 }
-// 版ごとの 計画線（月→人/日）と 人工合計。key＝ALL なら全現場の合計
+// 版ごとの 計画線（月→人/日）と 人工合計。key＝ALL ならその職種の全現場の合計（土工と鳶工は足さない）
 export function trendSeries(mats, mode, key) {
   return mats.map(mat => {
     const rows = rowsOf(mat, mode).filter(r => key === ALL || r.key === key);
     const values = {}, ninku = {};
     for (const r of rows) { for (const [ym, v] of Object.entries(r.values)) values[ym] = (values[ym] || 0) + v; for (const [ym, v] of Object.entries(r.ninku)) ninku[ym] = (ninku[ym] || 0) + v; }
-    return { key: mat.key, label: versionLabel(mat.key), values, ninkuTotal: Object.values(ninku).reduce((a, b) => a + b, 0), present: rows.length > 0 };
+    return { key: mat.key, trade: mode, label: versionLabel(mat.key), values, ninkuTotal: Object.values(ninku).reduce((a, b) => a + b, 0), present: rows.length > 0 };
   });
 }
 // グラフの月の範囲：どれかの版で人数がある最初〜最後の月（前後1か月の余白、範囲は全部の月の中）
