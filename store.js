@@ -30,6 +30,36 @@ export class GitHubStore {
     const j = await r.json(); return j.content.sha;
   }
 }
+// 版（data/versions/YYYY-MM.json）：一覧・読み込み・「無いときだけ作る」。版は上書きしない（sha を付けずに作る→あれば 422 で何もしない）
+export class GitHubVersions {
+  constructor(cfg, dir = 'data/versions') { this.cfg = cfg; this.dir = dir; this.fetch = cfg.fetchImpl || globalThis.fetch.bind(globalThis); }
+  store(path) { return new GitHubStore({ ...this.cfg, path }); }
+  async list() {
+    const st = this.store(this.dir);
+    const r = await this.fetch(`${st.url()}?ref=${encodeURIComponent(st.branch)}&_=${Date.now()}`, { headers: st.headers(), cache: 'no-store' });
+    if (r.status === 404) return [];
+    if (r.status === 401 || r.status === 403) throw Object.assign(new Error('auth'), { auth: true, status: r.status });
+    if (!r.ok) throw new Error(`版の一覧を読めません (${r.status})`);
+    const j = await r.json(); return Array.isArray(j) ? j : [];
+  }
+  async get(ym) { return (await this.store(`${this.dir}/${ym}.json`).load()).doc; }
+  async createIfMissing(ym, version) {
+    const st = this.store(`${this.dir}/${ym}.json`);
+    const body = { message: `版を保存：${ym}（アプリを開いたとき・自動）`, content: b64e(new TextEncoder().encode(JSON.stringify(version, null, 1) + '\n')), branch: st.branch };
+    const r = await this.fetch(st.url(), { method: 'PUT', headers: { ...st.headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.status === 422 || r.status === 409) return false; // もうある（ほかの端末や自動保存が先に作った）
+    if (r.status === 401 || r.status === 403) throw Object.assign(new Error('auth'), { auth: true, status: r.status });
+    if (!r.ok) throw new Error(`版を保存できません (${r.status})`);
+    return true;
+  }
+}
+// 体験用の版（ブラウザ内だけ）
+export class MemoryVersions {
+  constructor(map = {}) { this.map = structuredClone(map); }
+  async list() { return Object.keys(this.map).map(k => ({ type: 'file', name: k + '.json' })); }
+  async get(ym) { if (!this.map[ym]) throw new Error('版がありません'); return structuredClone(this.map[ym]); }
+  async createIfMissing(ym, version) { if (this.map[ym]) return false; this.map[ym] = structuredClone(version); return true; }
+}
 // テスト・体験用（ブラウザ内だけで完結）
 export class MemoryStore {
   constructor(doc) { this.doc = doc; this.sha = 'm1'; this.n = 1; }
