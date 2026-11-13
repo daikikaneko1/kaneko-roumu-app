@@ -167,7 +167,7 @@ export function spreadMonth(doc, site, ym, value) {
 
 // ---- 操作（op）: すべてここを通す。保存競合時はリモートの最新に同じ op を再適用する ----
 export function newId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-const SITE_FIELDS = ['trade', 'category', 'division', 'kubun', 'prevKubun', 'name', 'bu', 'shocho', 'shokucho', 'start', 'end', 'months', 'note', 'order', 'week', 'unitPrice'];
+const SITE_FIELDS = ['trade', 'category', 'division', 'kubun', 'prevKubun', 'name', 'bu', 'shocho', 'shokucho', 'kessai', 'start', 'end', 'months', 'note', 'order', 'week', 'unitPrice'];
 // 単価（円/人工）：正の数だけ有効。それ以外（空・0・文字）は「未設定」= null
 export function cleanPrice(v) { if (v === '' || v == null) return null; const n = Math.round(Number(v)); return Number.isFinite(n) && n > 0 ? n : null; }
 function cleanArr(arr) { return arr.some(v => v) ? arr : undefined; }
@@ -334,30 +334,55 @@ export function dayTotals(doc, date, opt = {}) {
 
 // ---- CSV（Excel で開けるよう BOM 付き UTF-8） ----
 const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+// ---- 現場の並び：開始が早い順（職種・新築/改修のまとまりの中で）。開始が無い現場は最後、同じなら今までの順（order） ----
+const ERAS = { R: 2018, '令和': 2018, H: 1988, '平成': 1988, S: 1925, '昭和': 1925 };
+// 工期（始）の文字 → 'YYYY-MM'。読めなければ null。例：R08.06 / R8.6 / 令和8年6月 / 2026/06 / 2026-06-15
+export function parseStartYm(v) {
+  let t = String(v ?? '').trim().replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[．。／－ー―‐・]/g, '.').replace(/元(?=\s*年)/, '1');
+  if (!t) return null;
+  let y, m, x;
+  if ((x = /^(R|H|S|令和|平成|昭和)\s*(\d{1,2})\s*[.\-/年]\s*(\d{1,2})/i.exec(t))) { y = ERAS[x[1].length === 1 ? x[1].toUpperCase() : x[1]] + Number(x[2]); m = Number(x[3]); }
+  else if ((x = /^(\d{4})\s*[.\-/年]\s*(\d{1,2})/.exec(t))) { y = Number(x[1]); m = Number(x[2]); }
+  else return null;
+  return m >= 1 && m <= 12 && y >= 1900 && y <= 2200 ? `${y}-${String(m).padStart(2, '0')}` : null;
+}
+// 人数（月 または 日）が入っている最初の月。無ければ null
+export function firstHeadcountYm(s) {
+  const yms = [...Object.entries(s.monthly || {}).filter(([, v]) => Number(v) > 0).map(([ym]) => ym), ...Object.entries(s.daily || {}).filter(([, a]) => Array.isArray(a) && a.some(v => Number(v) > 0)).map(([ym]) => ym)].filter(ym => /^\d{4}-\d{2}$/.test(ym));
+  return yms.length ? yms.sort()[0] : null;
+}
+// 並びに使う開始：工期（始）が読めればそれ、無ければ人数が入った最初の月
+export function siteStartYm(s) { return parseStartYm(s.start) || firstHeadcountYm(s); }
+// x は { trade, category, startYm, order }（startYm＝null は最後）
+export function compareSites(a, b) {
+  return (a.trade === b.trade ? 0 : a.trade === 'doko' ? -1 : 1) || (a.category === b.category ? 0 : a.category === '新築' ? -1 : 1)
+    || (a.startYm === b.startYm ? 0 : !a.startYm ? 1 : !b.startYm ? -1 : a.startYm < b.startYm ? -1 : 1) || (a.order ?? 0) - (b.order ?? 0);
+}
 export function sortedSites(doc, trade, opt = {}) {
   return doc.sites.filter(s => (!trade || s.trade === trade) && shown(s, opt))
-    .sort((a, b) => (a.trade === b.trade ? 0 : a.trade === 'doko' ? -1 : 1) || (a.category === b.category ? 0 : a.category === '新築' ? -1 : 1) || (a.order ?? 0) - (b.order ?? 0));
+    .map(s => ({ s, k: { trade: s.trade, category: s.category, startYm: siteStartYm(s), order: s.order } }))
+    .sort((a, b) => compareSites(a.k, b.k)).map(x => x.s);
 }
 export function monthlyCsv(doc, opt = {}) {
   const months = allMonths(doc);
-  const head = ['職種', '新築/改修', '工事部', '区分', '工事名', '部', '所長', '職長', '工期(始)', '工期(終)', '月数', ...months.map(ym => ym.replace('-', '/')), `5カ年人工(${estName(doc)})`, '単価(円/人工)', '売上見込み(円)'];
+  const head = ['職種', '新築/改修', '工事部', '区分', '工事名', '部', '所長', '職長', '決裁者', '工期(始)', '工期(終)', '月数', ...months.map(ym => ym.replace('-', '/')), `5カ年人工(${estName(doc)})`, '単価(円/人工)', '売上見込み(円)'];
   const rows = [head];
   const UN = '単価未設定';
-  for (const s of sortedSites(doc, null, opt)) { const ss = siteSales(doc, s, months); rows.push([TRADES[s.trade], s.category, DIVISIONS[divisionOf(s)], s.kubun, s.name, s.bu, s.shocho, s.shokucho, s.start, s.end, s.months ?? '', ...months.map(ym => { const v = monthInfo(doc, s, ym).value; return v ? round2(v) : ''; }), Math.round(ss.ninku), ss.price || UN, ss.price ? Math.round(ss.sales) : (ss.ninku ? UN : 0)]); }
+  for (const s of sortedSites(doc, null, opt)) { const ss = siteSales(doc, s, months); rows.push([TRADES[s.trade], s.category, DIVISIONS[divisionOf(s)], s.kubun, s.name, s.bu, s.shocho, s.shokucho, s.kessai ?? '', s.start, s.end, s.months ?? '', ...months.map(ym => { const v = monthInfo(doc, s, ym).value; return v ? round2(v) : ''; }), Math.round(ss.ninku), ss.price || UN, ss.price ? Math.round(ss.sales) : (ss.ninku ? UN : 0)]); }
   const tots = months.map(ym => monthTotals(doc, ym, opt));
   const salesCell = x => (x.unpriced > 0 && !x.sales ? UN : Math.round(x.sales));
   for (const t of Object.keys(TRADES)) {
-    for (const k of ['新築', '改修', '合計']) rows.push([TRADES[t], '', '', '', `${TRADES[t]}${k === '合計' ? '合計' : k + '計'}`, '', '', '', '', '', '', ...tots.map(x => round2(x[t][k]))]);
-    rows.push([TRADES[t], '', '', '', `月間稼働予測（${doc.settings.estimateMode === 'fixed' ? '×22日固定' : 'カレンダー稼働日'}）`, '', '', '', '', '', '', ...tots.map(x => Math.round(x[t].est))]);
-    if (!opt.groups || opt.groups.some(k => k.startsWith(t))) rows.push([TRADES[t], '', '', '', `${TRADES[t]}売上見込み（円・単価${cleanPrice(doc.settings.unitPrice?.[t]) ? cleanPrice(doc.settings.unitPrice[t]) + '円' : '未設定'}）`, '', '', '', '', '', '', ...tots.map(x => salesCell(x[t]))]);
+    for (const k of ['新築', '改修', '合計']) rows.push([TRADES[t], '', '', '', `${TRADES[t]}${k === '合計' ? '合計' : k + '計'}`, '', '', '', '', '', '', '', ...tots.map(x => round2(x[t][k]))]);
+    rows.push([TRADES[t], '', '', '', `月間稼働予測（${doc.settings.estimateMode === 'fixed' ? '×22日固定' : 'カレンダー稼働日'}）`, '', '', '', '', '', '', '', ...tots.map(x => Math.round(x[t].est))]);
+    if (!opt.groups || opt.groups.some(k => k.startsWith(t))) rows.push([TRADES[t], '', '', '', `${TRADES[t]}売上見込み（円・単価${cleanPrice(doc.settings.unitPrice?.[t]) ? cleanPrice(doc.settings.unitPrice[t]) + '円' : '未設定'}）`, '', '', '', '', '', '', '', ...tots.map(x => salesCell(x[t]))]);
   }
-  for (const g of GROUPS) if (!opt.groups || opt.groups.includes(g.key)) rows.push([TRADES[g.trade], '', DIVISIONS[g.division], '', `${g.label} 計`, '', '', '', '', '', '', ...tots.map(x => round2(x.groups[g.key].value))]);
-  for (const g of GROUPS) if (!opt.groups || opt.groups.includes(g.key)) rows.push([TRADES[g.trade], '', DIVISIONS[g.division], '', `${g.label} 売上見込み（円）`, '', '', '', '', '', '', ...tots.map(x => salesCell(x.groups[g.key]))]);
+  for (const g of GROUPS) if (!opt.groups || opt.groups.includes(g.key)) rows.push([TRADES[g.trade], '', DIVISIONS[g.division], '', `${g.label} 計`, '', '', '', '', '', '', '', ...tots.map(x => round2(x.groups[g.key].value))]);
+  for (const g of GROUPS) if (!opt.groups || opt.groups.includes(g.key)) rows.push([TRADES[g.trade], '', DIVISIONS[g.division], '', `${g.label} 売上見込み（円）`, '', '', '', '', '', '', '', ...tots.map(x => salesCell(x.groups[g.key]))]);
   // 人数の選択合計は職種ごと（土工と鳶工は山積みが別なので足さない）
-  if (opt.groups) for (const t of Object.keys(TRADES)) { const gs = GROUPS.filter(g => g.trade === t && opt.groups.includes(g.key)); if (gs.length) rows.push([TRADES[t], '', '', '', `選択合計（${gs.map(g => g.label).join('・')}）`, '', '', '', '', '', '', ...tots.map(x => round2(gs.reduce((a, g) => a + x.groups[g.key].value, 0)))]); }
+  if (opt.groups) for (const t of Object.keys(TRADES)) { const gs = GROUPS.filter(g => g.trade === t && opt.groups.includes(g.key)); if (gs.length) rows.push([TRADES[t], '', '', '', `選択合計（${gs.map(g => g.label).join('・')}）`, '', '', '', '', '', '', '', ...tots.map(x => round2(gs.reduce((a, g) => a + x.groups[g.key].value, 0)))]); }
   // 売上見込みの選択合計も職種ごと（土工と鳶工は足さない）
-  if (opt.groups) for (const t of Object.keys(TRADES)) { const gs = GROUPS.filter(g => g.trade === t && opt.groups.includes(g.key)); if (gs.length) rows.push([TRADES[t], '', '', '', `${TRADES[t]} 選択合計 売上見込み（円）`, '', '', '', '', '', '', ...tots.map(x => salesCell(gs.reduce((a, g) => ({ sales: a.sales + x.groups[g.key].sales, unpriced: a.unpriced + x.groups[g.key].unpriced }), { sales: 0, unpriced: 0 })))]); }
-  rows.push(['', '', '', '', '会社の稼働日数', '', '', '', '', '', '', ...tots.map(x => x.companyWd)]);
+  if (opt.groups) for (const t of Object.keys(TRADES)) { const gs = GROUPS.filter(g => g.trade === t && opt.groups.includes(g.key)); if (gs.length) rows.push([TRADES[t], '', '', '', `${TRADES[t]} 選択合計 売上見込み（円）`, '', '', '', '', '', '', '', ...tots.map(x => salesCell(gs.reduce((a, g) => ({ sales: a.sales + x.groups[g.key].sales, unpriced: a.unpriced + x.groups[g.key].unpriced }), { sales: 0, unpriced: 0 })))]); }
+  rows.push(['', '', '', '', '会社の稼働日数', '', '', '', '', '', '', '', ...tots.map(x => x.companyWd)]);
   return '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
 export function dailyCsv(doc, opt = {}) {
