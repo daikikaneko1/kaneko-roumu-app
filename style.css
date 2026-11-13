@@ -6,7 +6,8 @@ header{position:sticky;top:0;z-index:5;background:var(--blue);color:#fff;display
 main{padding:12px 12px 96px;max-width:900px;margin:0 auto}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:5}
 nav a{flex:1;text-align:center;color:#555;text-decoration:none;font-size:13px;padding:6px 0 8px;min-height:58px}
-nav a span{display:block;font-size:22px}nav a.on{color:var(--blue);font-weight:700;background:#e8f0fa}
+nav a span{display:block;font-size:22px}
+@media (max-width:899px){nav a{font-size:11.5px;letter-spacing:-.4px;padding-left:1px;padding-right:1px;white-space:nowrap;overflow:hidden}}nav a.on{color:var(--blue);font-weight:700;background:#e8f0fa}
 h2{font-size:20px;margin:10px 0}h3{font-size:17px;margin:16px 0 6px;color:var(--blue)}
 .center{text-align:center}.muted{color:#777;font-size:14px}.small{font-size:13px}
 button,.btn{font:inherit;min-height:48px;padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:#fff;color:#222;cursor:pointer;touch-action:manipulation}
@@ -117,6 +118,22 @@ button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{backg
 @media (min-width:900px){.sitegrid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.sitegrid .card{margin:8px 0}}
 @media (min-width:1400px){.sitegrid{grid-template-columns:1fr 1fr 1fr}}
 
+/* ---- 版の比較・推移（青＝増えた・赤＝減った。符号と数字も出すので色だけに頼らない） ---- */
+.vpick{display:flex;align-items:flex-end;gap:6px;margin:6px 0}.vpick label{flex:1;font-size:13px;font-weight:700;color:#555}.vpick select{margin-top:2px;font-weight:700}.vpick .arrow{flex:none;font-size:22px;padding-bottom:10px;color:#555}
+table.grid.vt td.vd{font-weight:700;font-variant-numeric:tabular-nums}
+.vd.up{background:#DCEAF8;color:#0B5CAD;cursor:pointer}.vd.dn{background:#FBE3E0;color:#B3261E;cursor:pointer}
+b.vd{display:inline-block;padding:0 6px;border-radius:4px;min-width:30px;text-align:center}
+.tup{color:#0B5CAD}.tdn{color:#B3261E}
+table.grid.vt td.vnm{white-space:normal;min-width:170px;max-width:230px;font-size:13px;line-height:1.35;height:auto}
+.vshift{display:flex;flex-direction:column;font-size:12px;margin-top:2px}.vshift .late{color:#8a4a10}.vshift .early{color:#0B5CAD}
+.vshift span::before{content:"⏱ "}
+.badge.vnew{background:#DCEAF8;border-color:#0B5CAD;color:#0B5CAD;font-weight:700}.badge.vgone{background:#FBE3E0;border-color:#B3261E;color:#B3261E;font-weight:700}
+tr.removed td.vnm{text-decoration:none;color:#666}
+.card.vinfo{background:#f7f9fc;font-size:15px;position:sticky;bottom:66px;z-index:4;box-shadow:0 -2px 8px rgba(0,0,0,.1);display:flex;gap:8px;align-items:flex-start}.card.vinfo>div{flex:1}.card.vinfo button{flex:none;min-height:36px;padding:2px 10px}.card.vsum .kv2 b{font-size:17px}
+table.grid.vt.day th,table.grid.vt.day td{min-width:40px;padding:4px}table.grid.vt.day th.sun{color:#c62828}table.grid.vt.day th.sat{color:#1565c0}
+.vlegend{gap:6px 14px}.vlegend span{display:inline-flex;align-items:center;gap:4px}
+.tabs.vmode.doko button.on{background:var(--doko);border-color:var(--doko)}.tabs.vmode.tobi button.on{background:var(--tobi);border-color:var(--tobi)}
+
 /* ---- PC（労務・900px以上）。スマホと出来高の見た目は変えない ---- */
 @media (min-width: 900px) {
   body:not(.dk) #topwrap { position: sticky; top: 0; z-index: 7; }
@@ -146,6 +163,7 @@ button.toggle{min-height:40px;font-size:14px;margin:4px 0}button.toggle.on{backg
   body:not(.dk) table.grid .nm { min-width: 220px; max-width: 280px; }
   body:not(.dk) .grid-wrap { max-height: calc(100vh - 240px); }
   body:not(.dk) .panel { bottom: 16px; }
+  body:not(.dk) .card.vinfo { bottom: 16px; }
   body:not(.dk) .panel.multi .applybar { bottom: 16px; }
   body:not(.dk) .card.sales b.yen { font-size: 28px; }
   body:not(.dk) .fytot { font-size: 16px; gap: 8px 20px; }
