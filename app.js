@@ -470,24 +470,29 @@ function vSum() {
   h += `<h3>事務所用（Excelで開けます・チェックした組だけ）</h3><button class="wide" data-a="csv|month">⬇ 5カ年 月別CSV</button><button class="wide" data-a="csv|day">⬇ 日別CSV</button>`;
   return h;
 }
-// ---- 売上見込み（人工×単価）：選んだ組・期間どおり ----
+// ---- 売上見込み（人工×単価）：選んだ組・期間どおり。土工と鳶工は別々に出す（足し合わせない。一部＋二部は同じ職種なので合計してよい） ----
 function salesSection(doc, data, months, years, start) {
-  const up = doc.settings.unitPrice || {}, trades = [...new Set(data.series.map(x => x.trade))];
-  const missing = trades.filter(t => !L.cleanPrice(up[t]));
+  const up = doc.settings.unitPrice || {}, sel = data.series.map(x => x.key);
+  const trades = Object.keys(L.TRADES).filter(t => data.series.some(x => x.trade === t));
   const per = `${start}年度${years > 1 ? `～${start + years - 1}年度` : ''}`;
-  let h = `<h3>売上見込み ${per}</h3>`;
-  const prompt = missing.length ? `<div class="card warn"><p>💴 ${missing.map(t => L.TRADES[t]).join('・')}の単価（円/人工）が未設定です。単価を入れると売上見込みが出ます。</p><button class="primary wide" data-a="go|settings">⚙️ 設定で単価を入れる</button></div>` : '';
-  if (data.salesTotal <= 0 && data.unpricedTotal > 0) return h + prompt;
-  const fyTot = []; for (let i = 0; i < years; i++) { const ms = L.fyMonths(start + i); fyTot.push([start + i, months.reduce((a, ym, k) => a + (ms.includes(ym) ? data.sales[k] : 0), 0)]); }
-  h += `<div class="card sales"><div class="flex"><div><small class="muted">期間の合計（${data.series.map(x => x.label).join('・')}）</small><b class="yen">${L.yen(data.salesTotal)}円</b><small class="muted">約${L.man(data.salesTotal)}万円</small></div></div>
-    ${years > 1 ? `<div class="fytot">${fyTot.map(([fy, v]) => `<span>${fy}年度 <b>${L.man(v)}</b>万円</span>`).join('')}</div>` : ''}
-    <p class="muted small" style="margin:4px 0 0">人工（稼働予測：${L.estName(doc)}）× 単価。単価：${Object.keys(L.TRADES).filter(t => trades.includes(t)).map(t => `${L.TRADES[t]} ${L.cleanPrice(up[t]) ? L.yen(L.cleanPrice(up[t])) + '円' : '未設定'}`).join('／')}${doc.sites.some(x => L.cleanPrice(x.unitPrice)) ? '（現場ごとの単価がある現場はそちらを優先）' : ''}</p>
-    ${data.unpricedTotal > 0 ? `<p class="warn small">単価が無いため含んでいない人工：${L.yen(data.unpricedTotal)}人工</p>` : ''}</div>${prompt}`;
   const hd = months.map(ym => `<th class="${ym.endsWith('-04') ? 'fyb' : ''}">${years > 1 ? `${String(L.parseYm(ym).y).slice(2)}/` : ''}${L.parseYm(ym).m}月</th>`).join('');
   const row = (lb, arr, un, cls = '') => `<tr class="${cls}"><td class="nm">${lb}</td>${arr.map((v, i) => `<td class="${months[i].endsWith('-04') ? 'fyb' : ''}">${!v && un && un[i] > 0 ? '<small class="warn">未設定</small>' : L.man(v)}</td>`).join('')}</tr>`;
-  h += `<div class="grid-wrap"><table class="grid"><thead><tr><th class="nm">売上見込み（万円）</th>${hd}</tr></thead><tbody>
-    ${data.series.map(x => row(`<i class="sw" style="background:${x.color}"></i>${x.label}`, x.sales, x.unpriced)).join('')}
-    ${row('選択の合計', data.sales, data.unpriced, 'tot')}</tbody></table></div>`;
+  let h = `<h3>売上見込み ${per}</h3>${trades.length > 1 ? '<p class="muted small" style="margin:0 0 4px">土工と鳶工は別々に出しています（足し合わせません）。</p>' : ''}`;
+  for (const t of trades) {
+    const td = trades.length > 1 ? L.groupSeries(doc, months, sel.filter(k => k.startsWith(t)), OPTG()) : data;
+    const price = L.cleanPrice(up[t]), col = `var(--${t})`;
+    h += `<div class="card sales trade-sales ${t}" data-trade="${t}" style="border-left:6px solid ${col}"><h4 style="margin:0 0 4px;color:${col}">${L.TRADES[t]}の売上見込み</h4>`;
+    if (td.salesTotal <= 0 && td.unpricedTotal > 0) { h += `<p class="warn">💴 ${L.TRADES[t]}の単価（円/人工）が未設定です。単価を入れると売上見込みが出ます。</p><button class="primary wide" data-a="go|settings">⚙️ 設定で単価を入れる</button></div>`; continue; }
+    const fyTot = []; for (let i = 0; i < years; i++) { const ms = L.fyMonths(start + i); fyTot.push([start + i, months.reduce((a, ym, k) => a + (ms.includes(ym) ? td.sales[k] : 0), 0)]); }
+    h += `<div class="flex"><div><small class="muted">期間の合計（${td.series.map(x => x.label).join('・')}）</small><b class="yen" style="color:${col}">${L.yen(td.salesTotal)}円</b><small class="muted">約${L.man(td.salesTotal)}万円</small></div></div>
+      ${years > 1 ? `<div class="fytot">${fyTot.map(([fy, v]) => `<span>${fy}年度 <b>${L.man(v)}</b>万円</span>`).join('')}</div>` : ''}
+      <p class="muted small" style="margin:4px 0 0">人工（稼働予測：${L.estName(doc)}）× ${L.TRADES[t]}単価 ${price ? L.yen(price) + '円' : '未設定'}${doc.sites.some(x => x.trade === t && L.cleanPrice(x.unitPrice)) ? '（現場ごとの単価がある現場はそちらを優先）' : ''}</p>
+      ${td.unpricedTotal > 0 ? `<p class="warn small">単価が無いため含んでいない人工：${L.yen(td.unpricedTotal)}人工</p>` : ''}
+      ${!price && td.unpricedTotal > 0 ? `<button class="wide" data-a="go|settings">⚙️ 設定で${L.TRADES[t]}の単価を入れる</button>` : ''}</div>
+      <div class="grid-wrap"><table class="grid"><thead><tr><th class="nm">${L.TRADES[t]} 売上見込み（万円）</th>${hd}</tr></thead><tbody>
+      ${td.series.map(x => row(`<i class="sw" style="background:${x.color}"></i>${x.label}`, x.sales, x.unpriced)).join('')}
+      ${row(trades.length > 1 ? `${L.TRADES[t]}の合計` : '選択の合計', td.sales, td.unpriced, 'tot')}</tbody></table></div>`;
+  }
   return h;
 }
 handlers.smode = m => { ui.sumMode = m; render(); };

@@ -355,7 +355,8 @@ export function monthlyCsv(doc, opt = {}) {
   for (const g of GROUPS) if (!opt.groups || opt.groups.includes(g.key)) rows.push([TRADES[g.trade], '', DIVISIONS[g.division], '', `${g.label} 売上見込み（円）`, '', '', '', '', '', '', ...tots.map(x => salesCell(x.groups[g.key]))]);
   // 人数の選択合計は職種ごと（土工と鳶工は山積みが別なので足さない）
   if (opt.groups) for (const t of Object.keys(TRADES)) { const gs = GROUPS.filter(g => g.trade === t && opt.groups.includes(g.key)); if (gs.length) rows.push([TRADES[t], '', '', '', `選択合計（${gs.map(g => g.label).join('・')}）`, '', '', '', '', '', '', ...tots.map(x => round2(gs.reduce((a, g) => a + x.groups[g.key].value, 0)))]); }
-  if (opt.groups) rows.push(['', '', '', '', '選択合計 売上見込み（円）', '', '', '', '', '', '', ...tots.map(x => salesCell(GROUPS.filter(g => opt.groups.includes(g.key)).reduce((a, g) => ({ sales: a.sales + x.groups[g.key].sales, unpriced: a.unpriced + x.groups[g.key].unpriced }), { sales: 0, unpriced: 0 })))]);
+  // 売上見込みの選択合計も職種ごと（土工と鳶工は足さない）
+  if (opt.groups) for (const t of Object.keys(TRADES)) { const gs = GROUPS.filter(g => g.trade === t && opt.groups.includes(g.key)); if (gs.length) rows.push([TRADES[t], '', '', '', `${TRADES[t]} 選択合計 売上見込み（円）`, '', '', '', '', '', '', ...tots.map(x => salesCell(gs.reduce((a, g) => ({ sales: a.sales + x.groups[g.key].sales, unpriced: a.unpriced + x.groups[g.key].unpriced }), { sales: 0, unpriced: 0 })))]); }
   rows.push(['', '', '', '', '会社の稼働日数', '', '', '', '', '', '', ...tots.map(x => x.companyWd)]);
   return '\uFEFF' + rows.map(r => r.map(q).join(',')).join('\r\n') + '\r\n';
 }
