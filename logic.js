@@ -52,6 +52,8 @@ let TODAY = null;
 export function setToday(d) { TODAY = d || null; }
 export function todayStr() { return TODAY || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
 export function todayYm() { return todayStr().slice(0, 7); }
+// 一時的に「今日」を変えて計算する（版＝その月の1日時点の見え方で数字を出すため）
+export function withToday(d, fn) { const prev = TODAY; TODAY = d || prev; try { return fn(); } finally { TODAY = prev; } }
 
 // 日別の開始月（既定＝日別を始めた年度の4月）。settings.dailyFrom があればそれを使う
 export function dailyFrom(doc) {
