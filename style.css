@@ -271,3 +271,9 @@ button.pick.doko .no{background:var(--doko-bg);color:var(--doko)}
 .span.tobi .st i{background:var(--tobi)}.span.doko .st i{background:var(--doko)}
 .minibal .tlab{font-size:12px;font-weight:700;margin:6px 0 2px}
 .minibal .tlab.tobi{color:var(--tobi)}.minibal .tlab.doko{color:var(--doko)}
+/* 現場の山積みグラフ（年度タブの上） */
+.site-mtn .chart-scroll{background:#fff;border:1px solid var(--line)}
+.site-mtn svg.smtn{border:0;border-radius:0;max-height:none}
+svg.smtn text{font-size:10px;fill:#777}svg.smtn text.bv{fill:#222}svg.smtn text.xm.sel{fill:#222}
+svg.smtn text.fyl{font-size:12px;font-weight:700;fill:#555}svg.smtn.t-doko text.fyl.sel{fill:var(--doko)}svg.smtn.t-tobi text.fyl.sel{fill:var(--tobi)}
+svg.smtn rect.fyhit:hover{fill-opacity:.04}
