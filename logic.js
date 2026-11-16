@@ -228,6 +228,13 @@ export function applyOp(doc, op) {
       }
       touch(site); break;
     }
+    case 'concrete': { // コンクリートの日の印（人数・合計は変えない）。site.concrete = { 'YYYY-MM-DD': true }（無ければ印なし）
+      if (!site || !/^\d{4}-\d{2}-\d{2}$/.test(String(op.date || ''))) break;
+      site.concrete = site.concrete || {};
+      if (op.on) site.concrete[op.date] = true; else delete site.concrete[op.date];
+      if (!Object.keys(site.concrete).length) delete site.concrete;
+      touch(site); break;
+    }
     case 'siteDay': {
       if (!site) break;
       site.dayOverrides = site.dayOverrides || {};
@@ -243,6 +250,7 @@ export function applyOp(doc, op) {
   }
   return doc;
 }
+export const isConcrete = (site, date) => !!(site && site.concrete && site.concrete[date]);
 export function applyOps(doc, ops) { const d = structuredClone(doc); for (const op of ops) applyOp(d, op); return d; }
 
 // 互換：指定年度の月の値を日に展開する。過去の日別は消さない・固定しない（日別の開始を前にずらすときだけ dailyFY を更新）
