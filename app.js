@@ -3,6 +3,7 @@ import { decryptSecret } from './crypto.js';
 import { GitHubStore, GitHubVersions, MemoryStore, MemoryVersions, Sync } from './store.js';
 import * as V from './versions.js';
 import { overlaySvg, totalsSvg, legendHtml, TRADE_COLORS } from './ver-charts.js';
+import * as SC from './site-chart.js';
 import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
@@ -105,7 +106,8 @@ function render() {
   showStatus();
 }
 const handlers = {};
-function bind() { ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
+function bind() { const sc = $('#main .site-mtn .chart-scroll'); if (sc && sc.scrollWidth > sc.clientWidth) sc.scrollLeft = Math.max(0, Number(sc.dataset.selx) - Math.max(0, (sc.clientWidth - Number(sc.dataset.selw)) / 2));
+  ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
   $('#main').querySelectorAll('[data-ch]').forEach(el => { el.onchange = () => { ui.keepScroll = true; handlers[el.dataset.ch] && handlers[el.dataset.ch](el.value); }; });
   $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; });
   const enter = (sel, fn) => { const el = $(sel); if (el) el.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); fn(); } }; };
@@ -160,7 +162,7 @@ function vSite(id) {
     <div class="meta">${L.TRADES[s.trade]}・${esc(s.category)}・${L.DIVISIONS[L.divisionOf(s)]}　部:${esc(s.bu || '－')}　所長:${esc(s.shocho || '－')}　職長:${esc(s.shokucho || '－')}　決裁者:${esc(s.kessai || '－')}<br>工期:${esc(s.start || '')}～${esc(s.end || '')}${s.months ? `（${s.months}ヶ月）` : ''}${s.note ? `<br>${esc(s.note)}` : ''}</div></div></div>
     <button class="wide" data-a="go|edit/${s.id}">✏️ 現場の情報を直す</button>
     ${L.isDone(s) ? `<p class="muted small">この現場は竣工です（一覧・集計では「竣工も表示」をオンにしたときだけ出ます）。</p><button class="wide" data-a="doneUnset|${s.id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${s.id}">🏁 竣工にする</button>`}</div>
-    <h3>月別の人数（1日あたり平均）</h3>${fyTabs(ui.fy, 'fy')}<div class="monthrows">`;
+    <h3>月別の人数（1日あたり平均）</h3>${siteMountain(doc, s)}${fyTabs(ui.fy, 'fy')}<div class="monthrows">`;
   let fyN = 0;
   for (const ym of L.fyMonths(ui.fy)) {
     const mi = L.monthInfo(doc, s, ym); fyN += mi.ninku;
@@ -174,6 +176,12 @@ function vSite(id) {
   return h;
 }
 handlers.fy = fy => { ui.fy = Number(fy); render(); };
+// 現場の山積みグラフ（年度タブの上）：計画の年度をまたいで山のつながりを見る。数字は 5カ年山積表と同じ（日別がある月は日別の平均）
+function siteMountain(doc, s) {
+  const d = SC.siteMountainData(doc, s, ui.fy), r = SC.siteMountainSvg(d, { avail: chartAvail() - 2, today: curYm() });
+  return `<div class="site-mtn" data-trade="${s.trade}"><div class="chart-scroll" data-selx="${Math.round(r.selX)}" data-selw="${Math.round(r.selW)}">${r.svg}</div>
+    <p class="muted small" style="margin:4px 0 8px">${d.empty ? 'まだ人数が入っていません。' : ''}${L.TRADES[s.trade]}の人/日（日別がある月は日別の月平均＝5カ年山積表と同じ）。年度の所をタップでその年度へ。</p></div>`;
+}
 // 現場の売上見込み（人工×単価）。単価が無ければ 0円 ではなく設定を促す
 function siteSalesCard(doc, s) {
   const fyS = L.siteSales(doc, s, L.fyMonths(ui.fy)), all = L.siteSales(doc, s, L.allMonths(doc));
