@@ -277,3 +277,33 @@ button.pick.doko .no{background:var(--doko-bg);color:var(--doko)}
 svg.smtn text{font-size:10px;fill:#777}svg.smtn text.bv{fill:#222}svg.smtn text.xm.sel{fill:#222}
 svg.smtn text.fyl{font-size:12px;font-weight:700;fill:#555}svg.smtn.t-doko text.fyl.sel{fill:var(--doko)}svg.smtn.t-tobi text.fyl.sel{fill:var(--tobi)}
 svg.smtn rect.fyhit:hover{fill-opacity:.04}
+/* 1カ年（日別山積表） */
+@media (max-width:899px){nav a{font-size:10.5px;letter-spacing:-.7px}nav a span{font-size:20px}nav a[data-nav="cal"]{flex:1.15}}
+.ymonths{display:flex;gap:6px;overflow-x:auto;margin:6px 0}.ymonths button{flex:0 0 auto;padding:6px 12px;min-height:36px}
+.ychart-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;background:#fff;border:1px solid var(--line);border-radius:10px 10px 0 0;scrollbar-width:none}.ychart-wrap::-webkit-scrollbar{display:none}
+.ychart-row{display:flex;align-items:stretch}.ychart-row svg{display:block;flex:0 0 auto}
+.ylab{position:sticky;left:0;z-index:2;background:#fff;border-right:1px solid var(--line);padding:6px;box-sizing:border-box;flex:0 0 auto;font-size:12px;line-height:1.35}.ylab small{display:block;color:#666;font-size:11px}
+.tc-doko{color:var(--doko)}.tc-tobi{color:var(--tobi)}.red{color:#d00}
+.ygrid-wrap{overflow:auto;-webkit-overflow-scrolling:touch;max-height:calc(100vh - 330px);min-height:260px;background:#fff;border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px}
+@media(min-width:900px){.ygrid-wrap{max-height:calc(100vh - 380px)}}
+table.ygrid{table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:13px}
+table.ygrid th,table.ygrid td{height:26px;padding:0;text-align:center;border-right:1px solid #eceef2;border-bottom:1px solid #eceef2;white-space:nowrap;overflow:hidden;box-sizing:border-box}
+table.ygrid .nm{position:sticky;left:0;z-index:2;background:#fff;text-align:left;padding:0 4px;border-right:2px solid #c9ced8;font-weight:400}
+table.ygrid thead th{position:sticky;background:#f6f7f9;z-index:3;font-weight:400}table.ygrid thead th.nm{z-index:4;background:#f6f7f9}
+table.ygrid tr.h1 th{top:0;height:22px}table.ygrid tr.h2 th{top:22px;height:22px}table.ygrid tr.h3 th{top:44px;height:20px;font-size:11px}table.ygrid tr.h4 th{top:64px;height:26px;font-weight:700;border-bottom:2px solid #c9ced8}
+table.ygrid th.ymh{text-align:left;font-weight:700;overflow:visible}table.ygrid th.ymh span{position:sticky;left:118px;padding:0 6px}
+table.ygrid .off{background:var(--off)}table.ygrid thead th.off{background:#e2e5ea}table.ygrid th.w0,table.ygrid th.w6{color:#b3261e}
+table.ygrid .first{border-left:2px solid #8a93a3}table.ygrid .today{border-left:3px solid #d00}table.ygrid thead th.today{color:#d00;font-weight:700}
+table.ygrid td.soff{background:#f3e9d2}table.ygrid td.swk{background:#fff}table.ygrid td.ow{background:#ffe0b2;font-weight:700}
+table.ygrid td.ro,table.ygrid .nw{color:#aaa;background:repeating-linear-gradient(45deg,#f4f4f4 0 4px,#fafafa 4px 8px)}
+table.ygrid tr.yrow td[data-c]{cursor:pointer}table.ygrid tr.yrow td{font-size:14px}
+table.ygrid td.sel{outline:2px solid #1a73e8;outline-offset:-2px;background:#e8f0fe}
+table.ygrid td input.yin{display:block;width:100%;height:25px;line-height:25px;border:0;margin:0;padding:0;text-align:center;font-size:15px;background:#fff8c4;outline:2px solid #1a73e8;outline-offset:-2px;box-sizing:border-box}
+table.ygrid tr.ysec th.nm{font-weight:700;background:#eef2f7}table.ygrid tr.ysec td{background:#eef2f7}
+table.ygrid.t-doko tr.ysec th.nm{color:var(--doko)}table.ygrid.t-tobi tr.ysec th.nm{color:var(--tobi)}
+table.ygrid tr.ysum th,table.ygrid tr.ysum td{font-weight:700;background:#f7f8fa;border-bottom:2px solid #c9ced8}
+table.ygrid.t-doko tr.h4 th{color:var(--doko)}table.ygrid.t-tobi tr.h4 th{color:var(--tobi)}table.ygrid tr.h4 th.off{background:#e2e5ea}
+table.ygrid .nm .kb{display:inline-flex;min-width:20px;height:20px;font-size:11px;margin-right:4px;vertical-align:middle;border-radius:4px}
+table.ygrid .nm .ynm{vertical-align:middle;font-size:13px}table.ygrid .nm small{font-size:10px;color:#888;margin-left:6px;vertical-align:middle}
+table.ygrid tr.yrow th.nm{cursor:pointer;text-overflow:ellipsis}
+@media(min-width:900px){table.ygrid th,table.ygrid td{height:30px}table.ygrid tr.h1 th{height:24px}table.ygrid tr.h2 th{top:24px;height:24px}table.ygrid tr.h3 th{top:48px}table.ygrid tr.h4 th{top:68px;height:30px}table.ygrid th.ymh span{left:230px}table.ygrid td input.yin{height:29px;line-height:29px}}

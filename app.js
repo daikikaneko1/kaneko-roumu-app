@@ -4,6 +4,7 @@ import { GitHubStore, GitHubVersions, MemoryStore, MemoryVersions, Sync } from '
 import * as V from './versions.js';
 import { overlaySvg, totalsSvg, legendHtml, TRADE_COLORS } from './ver-charts.js';
 import * as SC from './site-chart.js';
+import * as Y from './year-grid.js';
 import CONFIG from './config.js';
 
 const $ = s => document.querySelector(s);
@@ -98,7 +99,7 @@ function render() {
   if (!sync) return;
   const [r, a, b] = location.hash.slice(1).split('/').map(decodeURIComponent);
   document.querySelectorAll('#nav a').forEach(x => x.classList.toggle('on', x.dataset.nav === ({ site: 'list', edit: 'list', day: 'list' }[r] || r)));
-  const f = { list: vList, site: () => vSite(a), edit: () => vEdit(a), day: () => vDay(a, b), grid: vGrid, sum: vSum, ver: vVer, cal: vCal, settings: vSettings }[r] || vList;
+  const f = { list: vList, site: () => vSite(a), edit: () => vEdit(a), day: () => vDay(a, b), grid: vGrid, year: vYear, sum: vSum, ver: vVer, cal: vCal, settings: vSettings }[r] || vList;
   const y = window.scrollY; const html = f();
   if (html != null) { $('#main').innerHTML = html; bind(); }
   if (ui.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
@@ -106,7 +107,8 @@ function render() {
   showStatus();
 }
 const handlers = {};
-function bind() { const sc = $('#main .site-mtn .chart-scroll'); if (sc && sc.scrollWidth > sc.clientWidth) sc.scrollLeft = Math.max(0, Number(sc.dataset.selx) - Math.max(0, (sc.clientWidth - Number(sc.dataset.selw)) / 2));
+function bind() { bindYear();
+  const sc = $('#main .site-mtn .chart-scroll'); if (sc && sc.scrollWidth > sc.clientWidth) sc.scrollLeft = Math.max(0, Number(sc.dataset.selx) - Math.max(0, (sc.clientWidth - Number(sc.dataset.selw)) / 2));
   ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
   $('#main').querySelectorAll('[data-ch]').forEach(el => { el.onchange = () => { ui.keepScroll = true; handlers[el.dataset.ch] && handlers[el.dataset.ch](el.value); }; });
   $('#main').querySelectorAll('[data-a]').forEach(el => { el.onclick = e => { e.stopPropagation(); const [n, ...args] = el.dataset.a.split('|'); ui.keepScroll = true; handlers[n] && handlers[n](...args, el); }; });
@@ -152,6 +154,101 @@ function vList() {
   h += `<button class="primary wide" data-a="go|edit/new">＋ 現場を追加（${L.TRADES[ui.trade]}）</button>`;
   return h;
 }
+
+// ---------- 1カ年（日別山積表）：今月〜6か月先。現場×日の表に直接入力、職種ごとの山積みグラフ ----------
+const YW = () => (window.innerWidth >= 900 ? { colW: 34, nameW: 230, H: 160 } : { colW: 30, nameW: 118, H: 130 });
+const finePointer = () => window.matchMedia('(pointer: fine)').matches || !(navigator.maxTouchPoints > 0 || 'ontouchstart' in window); // マウスのある PC
+const mdw = d => `${Number(d.ym.slice(5))}/${d.day}（${L.WEEKDAYS[d.dow]}）`;
+function vYear() {
+  const doc = D(), t = ui.trade, m = Y.yearGridModel(doc, t, OPT()), { colW, nameW, H } = YW(), n = m.dates.length, W = nameW + n * colW;
+  ui.ym = m; // 入力のときに使う
+  const dcls = d => [d.work ? '' : 'off', d.today ? 'today' : '', d.first ? 'first' : '', d.win ? '' : 'nw'].filter(Boolean).join(' ');
+  let h = `<h2>1カ年 <small class="muted">日別山積表（人）・今月〜6か月先</small></h2>${tradeTabs()}${doneToggle(t)}
+    <div class="ymonths">${m.months.map(ym => `<button data-a="yjump|${ym}">${ym === curYm() ? '今月' : Number(ym.slice(5)) + '月'}</button>`).join('')}</div>
+    <div class="ychart-wrap" id="ycw"><div class="ychart-row" style="width:${W}px"><div class="ylab" style="width:${nameW}px"><b class="tc-${t}">${L.TRADES[t]}の山積み</b><small>1日の人数${m.target ? `<br>点線＝目標 ${m.target}人` : ''}<br><span class="red">赤線＝今日</span></small></div>${Y.yearChartSvg(m, { colW, H })}</div></div>
+    <div class="ygrid-wrap" id="ygw"><table class="ygrid t-${t}" style="width:${W}px"><colgroup><col style="width:${nameW}px">${`<col style="width:${colW}px">`.repeat(n)}</colgroup><thead>
+    <tr class="h1"><th class="nm">${L.TRADES[t]}</th>${m.months.map(ym => `<th class="ymh first" colspan="${L.daysInMonth(ym)}"><span>${ym.slice(0, 4)}年${Number(ym.slice(5))}月</span></th>`).join('')}</tr>
+    <tr class="h2"><th class="nm">工事名</th>${m.dates.map(d => `<th class="${dcls(d)}" title="${esc(d.reason)}">${d.day}</th>`).join('')}</tr>
+    <tr class="h3"><th class="nm"></th>${m.dates.map(d => `<th class="${dcls(d)} w${d.dow}">${L.WEEKDAYS[d.dow]}</th>`).join('')}</tr>
+    <tr class="h4 ytot"><th class="nm">${L.TRADES[t]}計</th>${m.total.map((v, i) => `<th class="${dcls(m.dates[i])}">${v || ''}</th>`).join('')}</tr></thead><tbody>`;
+  for (const sec of m.sections) {
+    h += `<tr class="ysec"><th class="nm">${sec.label}（${sec.sites.length}現場）</th><td colspan="${n}"></td></tr>`;
+    for (const s of sec.sites) {
+      h += `<tr class="yrow" data-id="${s.id}"><th class="nm" data-a="go|site/${s.id}" title="${esc(s.name)} 工期:${esc(s.start)}～${esc(s.end)}"><span class="kb ${esc(s.kubun)}">${esc(s.kubun || '－')}</span><span class="ynm">${esc(s.name)}</span>${window.innerWidth >= 900 && (s.start || s.end) ? `<small>${esc(s.start)}～${esc(s.end)}</small>` : ''}</th>`;
+      s.cells.forEach((c, i) => { const d = m.dates[i];
+        const cls = [dcls(d), c.siteOff ? 'soff' : '', c.siteWork ? 'swk' : '', c.offWork ? 'ow' : '', c.edit ? '' : 'ro'].filter(Boolean).join(' ');
+        h += `<td class="${cls}"${c.edit ? ` data-c="${i}"` : ''}>${c.v || ''}</td>`; });
+      h += '</tr>';
+    }
+    h += `<tr class="ysum"><th class="nm">${sec.label} 計</th>${sec.totals.map((v, i) => `<td class="${dcls(m.dates[i])}">${v || ''}</td>`).join('')}</tr>`;
+  }
+  h += `</tbody></table></div>
+    <div class="legend"><span><i style="background:var(--off)"></i>休み（会社カレンダー）</span><span><i style="background:#f3e9d2"></i>この現場だけ休み</span><span><i style="background:#ffe0b2;border:1px solid #e69500"></i>休みの日に出勤</span><span><i style="background:#fff;border-left:3px solid #d00"></i>今日</span></div>
+    <p class="muted small">マスをタップして人数を入れます${finePointer() ? '（パソコン：クリックで選んで数字キー、矢印で移動、Enterで決定、Deleteで0）' : ''}。入れた日の人数は、その月の平均として5カ年山積表にも自動で反映されます。工事名をタップで現場の画面へ。${L.TRADES[t]}だけの表です（土工と鳶工は足しません）。</p>`;
+  return h;
+}
+function yScrollTo(i, smooth) { const w = $('#ygw'); if (w) w.scrollTo({ left: Math.max(0, i * YW().colW - YW().colW), behavior: smooth ? 'smooth' : 'auto' }); }
+handlers.yjump = ym => { const i = ui.ym.dates.findIndex(d => d.ym === ym && (ym !== curYm() || d.today)); yScrollTo(i < 0 ? ui.ym.dates.findIndex(d => d.ym === ym) : i); };
+function yCell(id, c) { return document.querySelector(`#ygw tr.yrow[data-id="${id}"] td[data-c="${c}"]`); }
+function ySelect(td) {
+  document.querySelectorAll('#ygw td.sel').forEach(x => x.classList.remove('sel'));
+  if (!td) { ui.ysel = null; return; }
+  td.classList.add('sel'); ui.ysel = { id: td.parentElement.dataset.id, c: Number(td.dataset.c) };
+  const w = $('#ygw'), r = td.getBoundingClientRect(), wr = w.getBoundingClientRect(), nameW = YW().nameW;
+  if (r.left < wr.left + nameW) w.scrollLeft -= wr.left + nameW - r.left + 4; else if (r.right > wr.right) w.scrollLeft += r.right - wr.right + 4;
+  const top = wr.top + w.querySelector('thead').getBoundingClientRect().height; if (r.top < top) w.scrollTop -= top - r.top + 2; else if (r.bottom > wr.bottom) w.scrollTop += r.bottom - wr.bottom + 2;
+}
+function yValue(id, c) { const sec = ui.ym.sections.flatMap(x => x.sites).find(x => x.id === id); return sec ? sec.cells[c].v : 0; }
+function ySet(id, c, v) {
+  v = Math.max(0, Math.round(Number(v) || 0)); const d = ui.ym.dates[c]; if (!d || !d.win) return;
+  if (v === yValue(id, c)) { render(); return; }
+  ui.keepScroll = true; op({ t: 'day', id, date: d.date, v });
+}
+function yEdit(td, init) {
+  const id = td.parentElement.dataset.id, c = Number(td.dataset.c); let done = false;
+  td.innerHTML = `<input class="yin" type="text" inputmode="numeric" value="${init ?? (yValue(id, c) || '')}">`;
+  const inp = td.querySelector('input'); inp.focus(); if (init == null) inp.select(); else inp.setSelectionRange(inp.value.length, inp.value.length);
+  const fin = (move) => { if (done) return; done = true; const v = inp.value.trim(); ui.ysel = move ? yMove({ id, c }, move) : { id, c }; ySet(id, c, v === '' ? 0 : v); };
+  inp.onkeydown = e => { e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); fin([1, 0]); } else if (e.key === 'Tab') { e.preventDefault(); fin([0, e.shiftKey ? -1 : 1]); }
+    else if (e.key === 'Escape') { done = true; render(); } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); fin([e.key === 'ArrowDown' ? 1 : -1, 0]); } };
+  inp.onblur = () => fin(null);
+}
+// 選択の移動（行＝現場、列＝日。編集できないマスは飛ばす）
+function yMove(sel, [dr, dc]) {
+  const rows = [...document.querySelectorAll('#ygw tr.yrow')].map(r => r.dataset.id), r0 = rows.indexOf(sel.id);
+  const r = Math.min(rows.length - 1, Math.max(0, r0 + dr)); let c = sel.c + dc;
+  while (c >= 0 && c < ui.ym.dates.length && !ui.ym.dates[c].win) c += dc || 1;
+  if (c < 0 || c >= ui.ym.dates.length) c = sel.c;
+  return { id: rows[r], c };
+}
+function bindYear() {
+  const gw = $('#ygw'), cw = $('#ycw'); if (!gw) return;
+  let lock = false; const sync = (a, b) => () => { if (lock) return; lock = true; if (Math.abs(b.scrollLeft - a.scrollLeft) > 1) b.scrollLeft = a.scrollLeft; ui.yx = gw.scrollLeft; ui.yy = gw.scrollTop; requestAnimationFrame(() => { lock = false; }); };
+  gw.onscroll = sync(gw, cw); cw.onscroll = sync(cw, gw);
+  if (ui.yx == null) { const ti = ui.ym.dates.findIndex(d => d.today); yScrollTo(Math.max(0, ti)); } else { gw.scrollLeft = ui.yx; gw.scrollTop = ui.yy || 0; }
+  cw.scrollLeft = gw.scrollLeft;
+  if (ui.ysel) { const td = yCell(ui.ysel.id, ui.ysel.c); if (td) ySelect(td); else ui.ysel = null; }
+  gw.querySelector('table').onclick = e => {
+    const td = e.target.closest('td[data-c]'); if (!td || td.querySelector('input')) return;
+    const id = td.parentElement.dataset.id, c = Number(td.dataset.c), d = ui.ym.dates[c], s = site(id);
+    if (finePointer()) { if (ui.ysel && ui.ysel.id === id && ui.ysel.c === c) yEdit(td); else ySelect(td); return; }
+    const cell = ui.ym.sections.flatMap(x => x.sites).find(x => x.id === id).cells[c];
+    ySelect(td);
+    numberSheet({ title: `${esc(s.name)}<br>${mdw(d)}（人）`, value: cell.v, step: 1, info: cell.work ? '' : `${esc(cell.reason || '休み')}の日です。人数を入れるとこの日は出勤になります。`, onOk: v => ySet(id, c, v) });
+  };
+  gw.querySelector('table').ondblclick = e => { const td = e.target.closest('td[data-c]'); if (td && !td.querySelector('input')) { ySelect(td); yEdit(td); } };
+}
+document.addEventListener('keydown', e => {
+  if (!location.hash.startsWith('#year') || !ui.ysel || !$('#sheet').hidden || (e.target && e.target.tagName === 'INPUT')) return;
+  const td = yCell(ui.ysel.id, ui.ysel.c); if (!td) return;
+  const mv = { ArrowDown: [1, 0], ArrowUp: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key] || (e.key === 'Tab' ? [0, e.shiftKey ? -1 : 1] : null);
+  if (mv) { e.preventDefault(); const n = yMove(ui.ysel, mv); ySelect(yCell(n.id, n.c)); }
+  else if (/^[0-9]$/.test(e.key)) { e.preventDefault(); yEdit(td, e.key); }
+  else if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); yEdit(td); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); ySet(ui.ysel.id, ui.ysel.c, 0); }
+  else if (e.key === 'Escape') ySelect(null);
+});
 
 // ---------- 現場ごとの月別入力 ----------
 function vSite(id) {
