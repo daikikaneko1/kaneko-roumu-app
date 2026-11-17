@@ -125,7 +125,7 @@ function viewSettings() {
   <div class="card"><h3 style="margin-top:0">🚫 予定名のルール</h3><p class="muted small">予定名にこの文字があれば「数えない」または「確認待ち」にします（「、」区切り）。</p>
   ${(S.settings.rules || []).map((r, i) => `<div class="card" data-rrow="${i}"><label>文字<input type="text" data-r="patterns" value="${esc((r.patterns || []).join('、'))}"></label><div style="display:flex;gap:6px"><label style="flex:1">する事<select data-r="action"><option value="exclude" ${r.action === 'exclude' ? 'selected' : ''}>数えない</option><option value="ask" ${r.action === 'ask' ? 'selected' : ''}>確認待ち</option></select></label><label style="flex:2">理由<input type="text" data-r="label" value="${esc(r.label || '')}"></label></div><button data-rdel>消す</button></div>`).join('')}
   <div class="acts"><button data-radd>＋ ルールを追加</button><button class="primary" data-rsave>ルールを保存</button></div></div>
-  <div class="card small muted">月の目標：${S.settings.monthlyTarget || 2}回（新築）・カレンダー同期：${S.meta.syncedAt ? esc(S.meta.syncedAt.slice(0, 16).replace('T', ' ')) + '（UTC）' : '—'}・色の情報：${S.meta.colorAvailable ? 'あり' : 'なし'}${S.demo ? '' : '<br><button data-logout>ログアウト</button>'}</div>`;
+  <div class="card small muted">月の目標：${S.settings.monthlyTarget || 2}回（新築）・カレンダー同期：${S.meta.syncedAt ? esc(S.meta.syncedAt.slice(0, 16).replace('T', ' ')) + '（UTC）' : '—'}・色の情報：${S.meta.colorAvailable ? 'あり' : 'なし'}${S.demo ? '' : '<br><button data-logout>ログアウト（この端末の合言葉を消す）</button>'}</div>`;
 }
 function render() {
   const h = location.hash.replace('#', '') || 'month', [v, arg] = h.split('/');
@@ -176,27 +176,54 @@ main.addEventListener('click', e => {
     const m = {}; main.querySelectorAll('[data-aliasfor]').forEach(i => { const l = i.value.split(/[、,，]/).map(x => x.trim()).filter(x => P.norm(x).length >= 2); if (l.length) m[i.dataset.aliasfor] = l; });
     changeSettings(st => { const keep = Object.fromEntries(Object.entries(st.aliases || {}).filter(([k]) => !main.querySelector(`[data-aliasfor="${CSS.escape(k)}"]`))); st.aliases = { ...keep, ...m }; }, '別名を変更');
   }
-  else if (t.dataset.logout !== undefined) { sessionStorage.removeItem('patrol-session'); location.reload(); }
+  else if (t.dataset.logout !== undefined) { if (!confirm('この端末のログインを消しますか？次に開くとき合言葉が要ります。')) return; forget().then(() => location.reload()); }
   else if (t.dataset.site) location.hash = 'site/' + encodeURIComponent(t.dataset.site);
 });
 $('#sheet').addEventListener('click', e => { const t = e.target; if (t.id === 'sheet' || t.dataset.close !== undefined) $('#sheet').hidden = true; else if (t.dataset.gosite) { $('#sheet').hidden = true; location.hash = 'site/' + encodeURIComponent(t.dataset.gosite); } else { const r = t.closest('[data-site]'); if (r) { $('#sheet').hidden = true; location.hash = 'site/' + encodeURIComponent(r.dataset.site); } } });
 addEventListener('hashchange', () => { $('#sheet').hidden = true; render(); scrollTo(0, 0); });
 
-// ---------- ログイン ----------
+// ---------- ログイン（この端末で覚える） ----------
+// 合言葉そのものは保存しない：取り出せない端末鍵（IndexedDB の CryptoKey）で暗号化したものだけを localStorage に置く。
+// （データごとに別の塩で鍵を作り、保存のたびに新しく暗号化するため、合言葉と同じ働きのものが要る）
+const REM = 'patrol-remember', IDB = 'kaneko-patrol', subtle = crypto.subtle;
+const idb = mode => new Promise((ok, ng) => { const r = indexedDB.open(IDB, 1); r.onupgradeneeded = () => r.result.createObjectStore('keys'); r.onerror = () => ng(r.error); r.onsuccess = () => ok(r.result.transaction('keys', mode).objectStore('keys')); });
+const idbReq = q => new Promise((ok, ng) => { q.onsuccess = () => ok(q.result); q.onerror = () => ng(q.error); });
+async function deviceKey(create) {
+  let k = await idbReq((await idb('readonly')).get('device')).catch(() => null);
+  if (!k && create) { k = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); await idbReq((await idb('readwrite')).put(k, 'device')); }
+  return k;
+}
+const b64 = u => btoa(String.fromCharCode(...new Uint8Array(u))), unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function rememberPass(pass) {
+  try { const k = await deviceKey(true), iv = crypto.getRandomValues(new Uint8Array(12)); const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(pass)); localStorage.setItem(REM, JSON.stringify({ v: 1, iv: b64(iv), ct: b64(ct) })); }
+  catch (e) { localStorage.removeItem(REM); } // 覚えられない端末（プライベートモード等）は毎回入力
+}
+async function recallPass() {
+  try { const r = JSON.parse(localStorage.getItem(REM) || 'null'); if (!r) return null; const k = await deviceKey(false); if (!k) return null; return new TextDecoder().decode(await subtle.decrypt({ name: 'AES-GCM', iv: unb64(r.iv) }, k, unb64(r.ct))); }
+  catch (e) { return null; }
+}
+async function forget() { localStorage.removeItem(REM); sessionStorage.removeItem('patrol-session'); try { await idbReq((await idb('readwrite')).delete('device')); } catch (e) { /* なければよい */ } }
+
 async function start() { $('#nav').hidden = false; main.innerHTML = '<p>読み込み中…</p>'; await loadAll(); render(); }
 function login(msg = '') {
-  main.innerHTML = `<div class="login card"><h2>🔒 パトロール履歴</h2><p class="muted">パトロール用の合言葉を入れてください。</p><form id="lf"><input type="password" id="pw" autocomplete="current-password" placeholder="合言葉"><p style="color:var(--ng)">${esc(msg)}</p><button class="primary" style="width:100%">ひらく</button></form><p class="small"><a href="?demo=1">お試し表示（架空のデータ）</a></p></div>`;
+  $('#nav').hidden = true;
+  main.innerHTML = `<div class="login card"><h2>🔒 パトロール履歴</h2><p class="muted">パトロール用の合言葉を入れてください。この端末では次から入れなくて大丈夫です（設定 →「ログアウト」で消せます）。</p><form id="lf"><input type="password" id="pw" autocomplete="current-password" placeholder="合言葉"><p style="color:var(--ng)">${esc(msg)}</p><button class="primary" style="width:100%">ひらく</button></form><p class="small"><a href="?demo=1">お試し表示（架空のデータ）</a></p></div>`;
   $('#lf').addEventListener('submit', async ev => {
     ev.preventDefault(); const pass = $('#pw').value.trim(); main.querySelector('button').disabled = true;
     const token = await decryptSecret(CFG.encToken, pass).catch(() => null);
     if (!token) { login('合言葉が違います'); return; }
-    S.pass = pass; S.token = token; sessionStorage.setItem('patrol-session', pass);
+    S.pass = pass; S.token = token; await rememberPass(pass);
     try { await start(); } catch (e) { login(e.auth ? '鍵の期限切れかもしれません（連絡してください）' : e.message); }
   });
 }
 (async () => {
   if (S.demo) { await start(); return; }
-  const pass = sessionStorage.getItem('patrol-session');
-  if (pass) { const token = await decryptSecret(CFG.encToken, pass).catch(() => null); if (token) { S.pass = pass; S.token = token; try { await start(); return; } catch (e) { /* ログインへ */ } } }
+  const pass = await recallPass();
+  if (pass) {
+    const token = await decryptSecret(CFG.encToken, pass).catch(() => null);
+    if (!token) { await forget(); login('合言葉が変わりました。もう一度入れてください。'); return; }
+    S.pass = pass; S.token = token;
+    try { await start(); return; } catch (e) { login(e.auth ? '鍵の期限切れかもしれません（連絡してください）' : '読み込めませんでした（電波を確かめて開き直してください）：' + e.message); return; }
+  }
   login();
 })();
