@@ -37,6 +37,8 @@ async function loadSettings() {
   catch (err) { if (!/404/.test(err.message)) throw err; S.settings = P.DEFAULT_SETTINGS(); S.settingsSha = undefined; }
 }
 const recompute = () => { S.a = P.analyze(S.meta.events || [], S.roumu, S.settings); S.byKey = Object.fromEntries(S.a.sites.map(s => [s.key, s])); };
+const catTag = c => c === '改修' ? '<span class="tag kai">改修</span>' : c === '新築' ? '<span class="tag">新築</span>' : '<span class="tag">区分未確認</span>';
+const reasonText = e => e.reason === 'rule' ? (e.label || P.REASONS.rule) : P.REASONS[e.reason];
 const siteName = k => (S.byKey[k] || {}).name || k;
 
 // 設定の保存（暗号化・ぶつかったら読み直してもう一度）
@@ -71,7 +73,7 @@ function viewMonth() {
   <div class="sum"><div><b>${v.visited}</b><small>行った現場</small></div><div><b>${v.total}</b><small>回数</small></div><div><b style="color:${v.short ? 'var(--ng)' : 'var(--ok)'}">${v.short}</b><small>2回未満（新築）</small></div></div>
   ${unsure ? `<div class="note">🔍 この月に「要確認」が${unsure}件あります → <a href="#check">除外チェック</a>で決めてください（決めるまで数えません）</div>` : ''}
   ${S.meta.colorAvailable === false && !S.demo ? '<div class="note">カレンダーの色が読めないため、グレー（行っていない）は自動で外せません。行っていない予定は 現場をタップ →「行っていない」で外してください。</div>' : ''}
-  ${v.rows.map(r => `<div class="card site ${r.short ? 'short' : ''}" data-site="${esc(r.key)}"><span class="mark">${r.target == null ? '・' : r.short ? '⚠️' : '✅'}</span><div class="nm"><b>${esc(r.name)}</b><small>${r.category === '改修' ? '<span class="tag kai">改修</span>' : '<span class="tag">新築</span>'}${r.trades.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</small></div><div class="cnt">${r.count}<small>${r.target != null ? `/${r.target}回` : '回'}</small></div></div>`).join('')}`;
+  ${v.rows.map(r => `<div class="card site ${r.short ? 'short' : ''}" data-site="${esc(r.key)}"><span class="mark">${r.target == null ? '・' : r.short ? '⚠️' : '✅'}</span><div class="nm"><b>${esc(r.name)}</b><small>${catTag(r.category)}${r.trades.map(t => `<span class="tag">${esc(t)}</span>`).join('')}${r.team ? `<span class="tag">${esc(r.team)}</span>` : ''}${r.extra ? '<span class="tag">パトロール専用</span>' : ''}</small></div><div class="cnt">${r.count}<small>${r.target != null ? `/${r.target}回` : '回'}</small></div></div>`).join('')}`;
 }
 function viewYear() {
   const v = P.yearView(S.a, S.fy, S.settings.monthlyTarget || 2, S.today);
@@ -86,11 +88,11 @@ function evRow(e, extra = '') { return `<div class="ev"><div class="d">${md(e.da
 function viewSite(key) {
   const s = S.byKey[key]; if (!s) return '<p>現場が見つかりません</p>';
   const vs = P.visitsOf(S.a, key).sort((a, b) => b.date.localeCompare(a.date)), ex = S.a.events.filter(e => e.status === 'exclude' && e.site === key);
-  return `<p><button data-back>← もどる</button></p><h2>${esc(s.name)}</h2><p class="muted">${s.category}${s.done ? '・竣工' : ''}・${s.trades.join('/')}・今年度 ${vs.filter(e => P.fyOf(e.date) === S.fy).length}回</p>
+  return `<p><button data-back>← もどる</button></p><h2>${esc(s.name)}</h2><p class="muted">${s.category || '区分未確認'}${s.done ? '・終了' : ''}${s.trades.length ? '・' + s.trades.join('/') : ''}${s.team ? '・' + esc(s.team) : ''}${s.extra ? '・パトロール専用' : ''}${s.mergedNames ? '・まとめた名前：' + esc(s.mergedNames.join('、')) : ''}${s.note ? '・' + esc(s.note) : ''}・今年度 ${vs.filter(e => P.fyOf(e.date) === S.fy).length}回</p>
   <div class="card"><h3 style="margin-top:0">行った日</h3>${vs.length ? vs.map(e => evRow(e, `<div class="why">${esc(e.how || '')}${e.colorUnknown && !S.demo ? '・色未確認' : ''}</div><div class="acts"><button data-ov="${esc(e.id)}" data-ovs="exclude">行っていない（外す）</button>${e.manual ? `<button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}</div>`)).join('') : '<p class="muted">まだありません</p>'}</div>
-  ${ex.length ? `<div class="card"><h3 style="margin-top:0">数えていない予定</h3>${ex.map(e => evRow(e, `<span class="pill ${e.reason}">${esc(P.REASONS[e.reason])}</span>${e.manual ? ` <button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}`)).join('')}</div>` : ''}`;
+  ${ex.length ? `<div class="card"><h3 style="margin-top:0">数えていない予定</h3>${ex.map(e => evRow(e, `<span class="pill ${e.reason}">${esc(reasonText(e))}</span>${e.manual ? ` <button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}`)).join('')}</div>` : ''}`;
 }
-const KIND = { ambiguous: '候補が2つ以上', nosite: '現場が分からない', similar: '現場名に似ているがパトロールか不明', kind: 'パトロールか分からない（式・謝罪など）' };
+const KIND = { ask: '金子さんに確認中', ambiguous: '候補が2つ以上', nosite: '現場が分からない', similar: '現場名に似ているがパトロールか不明', kind: 'パトロールか分からない（式・謝罪など）' };
 function siteSelect(e) {
   const opts = (e.options || []).filter(k => S.byKey[k]), rest = S.a.sites.filter(s => !opts.includes(s.key)).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   return `<select data-sel="${esc(e.id)}">${opts.map(k => `<option value="${esc(k)}">候補：${esc(siteName(k))}</option>`).join('')}<option value="">— ほかの現場 —</option>${rest.map(s => `<option value="${esc(s.key)}">${esc(s.name)}</option>`).join('')}</select>`;
@@ -101,9 +103,9 @@ function viewCheck() {
   const ex = S.a.events.filter(e => e.status === 'exclude' && inFy(e)).sort((a, b) => b.date.localeCompare(a.date));
   return `<h2>除外チェック <small class="muted">${S.fy}年度</small></h2>
   <h3>🔍 要確認・未割り当て（${un.length}件）</h3><p class="muted small">決めるまで数えません。現場を選んで「数える」か「数えない」を押してください。</p>
-  ${un.map(e => `<div class="card q">${evRow(e, `<div class="why">${esc(KIND[e.kind] || '')}</div>${siteSelect(e)}<label class="small" style="display:block;margin-top:4px"><input type="checkbox" data-alias="${esc(e.id)}"> 「${esc(e.title)}」をこの現場の別名として覚える</label><div class="acts"><button class="primary" data-ov="${esc(e.id)}" data-ovs="count">この現場で数える</button><button data-ov="${esc(e.id)}" data-ovs="exclude">数えない</button></div>`)}</div>`).join('') || '<p class="muted">ありません 👍</p>'}
+  ${un.map(e => `<div class="card q">${evRow(e, `<div class="why">${esc(KIND[e.kind] || '')}${e.note ? '：' + esc(e.note) : ''}</div>${siteSelect(e)}<label class="small" style="display:block;margin-top:4px"><input type="checkbox" data-alias="${esc(e.id)}"> 「${esc(e.title)}」をこの現場の別名として覚える</label><div class="acts"><button class="primary" data-ov="${esc(e.id)}" data-ovs="count">この現場で数える</button><button data-ov="${esc(e.id)}" data-ovs="exclude">数えない</button></div>`)}</div>`).join('') || '<p class="muted">ありません 👍</p>'}
   <h3>🚫 外した予定（${ex.length}件）</h3>
-  <div class="card">${ex.map(e => evRow(e, `<span class="pill ${e.reason}">${esc(P.REASONS[e.reason])}</span>${e.site ? ` <small class="muted">${esc(siteName(e.site))}</small>` : ''}${e.manual ? ` <button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}`)).join('') || '<p class="muted">ありません</p>'}</div>`;
+  <div class="card">${ex.map(e => evRow(e, `<span class="pill ${e.reason}">${esc(reasonText(e))}</span>${e.site ? ` <small class="muted">${esc(siteName(e.site))}</small>` : ''}${e.manual ? ` <button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}`)).join('') || '<p class="muted">ありません</p>'}</div>`;
 }
 function viewSettings() {
   const sp = S.settings.special || [];
@@ -117,6 +119,12 @@ function viewSettings() {
   <div class="card"><h3 style="margin-top:0">🏷️ 現場の別名</h3><p class="muted small">カレンダーでの呼び方を「、」区切りで。例：〇〇西口、〇〇PT</p>
   ${S.a.sites.filter(s => !s.done || (S.settings.aliases[s.key] || []).length).sort((a, b) => a.name.localeCompare(b.name, 'ja')).map(s => `<label style="display:block;margin:8px 0"><b>${esc(s.name)}</b>${s.category === '改修' ? ' <span class="tag kai">改修</span>' : ''}<input type="text" data-aliasfor="${esc(s.key)}" value="${esc((S.settings.aliases[s.key] || []).join('、'))}"></label>`).join('')}
   <div class="acts"><button class="primary" data-aliassave>別名を保存</button></div></div>
+  <div class="card"><h3 style="margin-top:0">➕ パトロール専用の現場（山積みには入りません）</h3><p class="muted small">区分が分からないときは「未確認」（目標の対象外）。</p>
+  ${(S.settings.extraSites || []).map((x, i) => `<div class="card" data-xrow="${i}"><label>現場名<input type="text" data-x="name" value="${esc(x.name)}"></label><div style="display:flex;gap:6px"><label style="flex:1">区分<select data-x="category">${P.CATEGORIES.map(c => `<option value="${c}" ${c === (x.category || '') ? 'selected' : ''}>${c || '未確認'}</option>`).join('')}</select></label><label style="flex:2">チーム・元方<input type="text" data-x="team" value="${esc(x.team || '')}"></label></div><label>メモ<input type="text" data-x="note" value="${esc(x.note || '')}"></label><label class="small"><input type="checkbox" data-x="done" ${x.done ? 'checked' : ''}> 終わった・やらない現場</label> <button data-xdel>消す</button></div>`).join('')}
+  <div class="acts"><button data-xadd>＋ 現場を追加</button><button class="primary" data-xsave>現場を保存</button></div></div>
+  <div class="card"><h3 style="margin-top:0">🚫 予定名のルール</h3><p class="muted small">予定名にこの文字があれば「数えない」または「確認待ち」にします（「、」区切り）。</p>
+  ${(S.settings.rules || []).map((r, i) => `<div class="card" data-rrow="${i}"><label>文字<input type="text" data-r="patterns" value="${esc((r.patterns || []).join('、'))}"></label><div style="display:flex;gap:6px"><label style="flex:1">する事<select data-r="action"><option value="exclude" ${r.action === 'exclude' ? 'selected' : ''}>数えない</option><option value="ask" ${r.action === 'ask' ? 'selected' : ''}>確認待ち</option></select></label><label style="flex:2">理由<input type="text" data-r="label" value="${esc(r.label || '')}"></label></div><button data-rdel>消す</button></div>`).join('')}
+  <div class="acts"><button data-radd>＋ ルールを追加</button><button class="primary" data-rsave>ルールを保存</button></div></div>
   <div class="card small muted">月の目標：${S.settings.monthlyTarget || 2}回（新築）・カレンダー同期：${S.meta.syncedAt ? esc(S.meta.syncedAt.slice(0, 16).replace('T', ' ')) + '（UTC）' : '—'}・色の情報：${S.meta.colorAvailable ? 'あり' : 'なし'}${S.demo ? '' : '<br><button data-logout>ログアウト</button>'}</div>`;
 }
 function render() {
@@ -153,6 +161,17 @@ main.addEventListener('click', e => {
     changeSettings(st => { st.special = rows; }, '特別目標を変更');
   }
   else if (t.dataset.tgtsave !== undefined) { const off = [...main.querySelectorAll('[data-tgt]')].filter(i => !i.checked).map(i => i.dataset.tgt); changeSettings(st => { st.noTarget = off; }, '目標の対象を変更'); }
+  else if (t.dataset.xadd !== undefined) { S.settings.extraSites = [...(S.settings.extraSites || []), { name: '', category: '', team: '', note: '', done: false }]; render(); }
+  else if (t.dataset.xdel !== undefined || t.dataset.rdel !== undefined) { t.closest('[data-xrow],[data-rrow]').remove(); }
+  else if (t.dataset.xsave !== undefined) {
+    const rows = [...main.querySelectorAll('[data-xrow]')].map(r => { const g = f => r.querySelector(`[data-x="${f}"]`); return { name: g('name').value.trim(), category: g('category').value, team: g('team').value.trim(), note: g('note').value.trim(), done: g('done').checked }; }).filter(x => P.norm(x.name).length >= 2);
+    changeSettings(st => { st.extraSites = rows; }, 'パトロール専用の現場を変更');
+  }
+  else if (t.dataset.radd !== undefined) { S.settings.rules = [...(S.settings.rules || []), { id: 'r-' + Date.now().toString(36), patterns: [], action: 'exclude', label: '' }]; render(); }
+  else if (t.dataset.rsave !== undefined) {
+    const rows = [...main.querySelectorAll('[data-rrow]')].map(r => { const old = (S.settings.rules || [])[+r.dataset.rrow] || {}; const g = f => r.querySelector(`[data-r="${f}"]`).value; return { ...old, id: old.id || 'r-' + Date.now().toString(36), patterns: g('patterns').split(/[、,，]/).map(x => x.trim()).filter(x => P.norm(x).length >= 2), action: g('action'), label: g('label').trim() }; }).filter(r => r.patterns.length);
+    changeSettings(st => { st.rules = rows; }, '予定名のルールを変更');
+  }
   else if (t.dataset.aliassave !== undefined) {
     const m = {}; main.querySelectorAll('[data-aliasfor]').forEach(i => { const l = i.value.split(/[、,，]/).map(x => x.trim()).filter(x => P.norm(x).length >= 2); if (l.length) m[i.dataset.aliasfor] = l; });
     changeSettings(st => { const keep = Object.fromEntries(Object.entries(st.aliases || {}).filter(([k]) => !main.querySelector(`[data-aliasfor="${CSS.escape(k)}"]`))); st.aliases = { ...keep, ...m }; }, '別名を変更');
