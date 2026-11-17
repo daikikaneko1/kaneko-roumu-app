@@ -36,7 +36,7 @@ async function loadSettings() {
   try { const s = await S.st.settings.load(); S.settings = { ...P.DEFAULT_SETTINGS(), ...(await openDoc(s.doc, S.pass)) }; S.settingsSha = s.sha; }
   catch (err) { if (!/404/.test(err.message)) throw err; S.settings = P.DEFAULT_SETTINGS(); S.settingsSha = undefined; }
 }
-const recompute = () => { S.a = P.analyze(S.meta.events || [], S.roumu, S.settings); S.byKey = Object.fromEntries(S.a.sites.map(s => [s.key, s])); };
+const recompute = () => { S.a = P.analyze(S.meta.events || [], S.roumu, S.settings); S.byKey = Object.fromEntries(S.a.allSites.map(s => [s.key, s])); };
 const catTag = c => c === '改修' ? '<span class="tag kai">改修</span>' : c === '新築' ? '<span class="tag">新築</span>' : '<span class="tag">区分未確認</span>';
 const reasonText = e => e.reason === 'rule' ? (e.label || P.REASONS.rule) : P.REASONS[e.reason];
 const siteName = k => (S.byKey[k] || {}).name || k;
@@ -116,6 +116,9 @@ function viewSettings() {
   <div class="card"><h3 style="margin-top:0">✅ 月${S.settings.monthlyTarget || 2}回・特別目標の対象（新築）</h3><p class="muted small">まだ始まっていない現場などはチェックを外すと、⚠️・赤・特別目標から外れます（回数は記録されます）。</p>
   ${S.a.sites.filter(s => s.category === '新築' && !s.done).sort((a, b) => a.name.localeCompare(b.name, 'ja')).map(s => `<label style="display:flex;gap:8px;align-items:center;min-height:40px"><input type="checkbox" data-tgt="${esc(s.key)}" ${s.noTarget ? '' : 'checked'}> ${esc(s.name)}</label>`).join('')}
   <div class="acts"><button class="primary" data-tgtsave>対象を保存</button></div></div>
+  <div class="card"><h3 style="margin-top:0">👁️ 表示する現場</h3><p class="muted small">チェックを外すと「非表示」：今月・年度・年末目標に出ません。その現場の予定は消さずに 除外チェック に「非表示の現場」で残ります。</p>
+  ${S.a.allSites.filter(s => !s.done || s.hidden).sort((a, b) => (b.hidden - a.hidden) || a.name.localeCompare(b.name, 'ja')).map(s => `<label style="display:flex;gap:8px;align-items:center;min-height:40px"><input type="checkbox" data-show="${esc(s.key)}" ${s.hidden ? '' : 'checked'}> ${esc(s.name)}${s.hidden ? ' <span class="tag">非表示</span>' : ''}</label>`).join('')}
+  <div class="acts"><button class="primary" data-showsave>表示を保存</button></div></div>
   <div class="card"><h3 style="margin-top:0">🏷️ 現場の別名</h3><p class="muted small">カレンダーでの呼び方を「、」区切りで。例：〇〇西口、〇〇PT</p>
   ${S.a.sites.filter(s => !s.done || (S.settings.aliases[s.key] || []).length).sort((a, b) => a.name.localeCompare(b.name, 'ja')).map(s => `<label style="display:block;margin:8px 0"><b>${esc(s.name)}</b>${s.category === '改修' ? ' <span class="tag kai">改修</span>' : ''}<input type="text" data-aliasfor="${esc(s.key)}" value="${esc((S.settings.aliases[s.key] || []).join('、'))}"></label>`).join('')}
   <div class="acts"><button class="primary" data-aliassave>別名を保存</button></div></div>
@@ -160,6 +163,7 @@ main.addEventListener('click', e => {
     if (rows.some(r => !r.start || !r.end || r.start > r.end)) { toast('はじめ・おわりの日付を確かめてください'); return; }
     changeSettings(st => { st.special = rows; }, '特別目標を変更');
   }
+  else if (t.dataset.showsave !== undefined) { const shown = new Set([...main.querySelectorAll('[data-show]')].filter(i => i.checked).map(i => i.dataset.show)), listed = [...main.querySelectorAll('[data-show]')].map(i => i.dataset.show); changeSettings(st => { st.hidden = [...new Set([...(st.hidden || []).filter(k => !listed.includes(k)), ...listed.filter(k => !shown.has(k))])]; }, '表示する現場を変更'); }
   else if (t.dataset.tgtsave !== undefined) { const off = [...main.querySelectorAll('[data-tgt]')].filter(i => !i.checked).map(i => i.dataset.tgt); changeSettings(st => { st.noTarget = off; }, '目標の対象を変更'); }
   else if (t.dataset.xadd !== undefined) { S.settings.extraSites = [...(S.settings.extraSites || []), { name: '', category: '', team: '', note: '', done: false }]; render(); }
   else if (t.dataset.xdel !== undefined || t.dataset.rdel !== undefined) { t.closest('[data-xrow],[data-rrow]').remove(); }

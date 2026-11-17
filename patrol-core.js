@@ -7,9 +7,10 @@ export const GROUP_RE = /協力会|支部|分科会|帯同|合同パトロール
 export const EVENT_RE = /ゴルフ|⛳|コンペ|大会|懇親|総会|例会|忘年会|新年会|暑気払い|慰安旅行|研修|カップ|CUP|表彰|納会/i;
 export const UNSURE_RE = /謝罪|式|組立|見学|キックオフ|監督署|打ち合わせ|打合せ|調査|お祝い|祝い|挨拶|会食|ご飯|面接|立会|MTG|会議/;
 export const GREY = '8'; // Google カレンダーの「グラファイト」
-export const REASONS = { grey: 'グレー（行っていない）', group: '団体のパトロール', event: '会社・団体の行事', manual: '手で外した', dup: '同じ日の2件目', rule: '除外ルール' };
+export const REASONS = { grey: 'グレー（行っていない）', group: '団体のパトロール', event: '会社・団体の行事', manual: '手で外した', dup: '同じ日の2件目', rule: '除外ルール', hidden: '非表示の現場' };
 export const CATEGORIES = ['新築', '改修', '']; // '' ＝区分未確認（目標の対象にしない）
 export const DEFAULT_SETTINGS = () => ({ aliases: {}, overrides: {}, special: [{ id: 'nenmatsu-2026', label: '年末特別目標', start: '2026-11-15', end: '2026-12-31', target: 3, category: '新築' }], monthlyTarget: 2, noTarget: [],
+  hidden: [],     // 非表示の現場（一覧・年度・特別目標に出さない。予定は除外チェックへ「非表示」で）
   extraSites: [], // パトロール専用の現場（山積みに無い）：{ name, category: 新築|改修|'', team, done, note }
   merge: {},      // 現場をまとめる：{ まとめられる現場キー: まとめ先キー }
   rules: [],      // 予定名のルール：{ id, patterns: [文字], action: 'exclude'|'ask', label }
@@ -98,14 +99,16 @@ export function classify(ev, sites, settings = {}) {
 }
 // まとめ：同じ現場・同じ日は1回
 export function analyze(events, roumu, settings = DEFAULT_SETTINGS()) {
-  const sites = buildSites(roumu, settings), out = [], seen = new Set(), off = new Set(settings.noTarget || []);
-  for (const x of sites) x.noTarget = off.has(x.key);
+  const all = buildSites(roumu, settings), out = [], seen = new Set(), off = new Set(settings.noTarget || []), hid = new Set(settings.hidden || []);
+  for (const x of all) { x.noTarget = off.has(x.key); x.hidden = hid.has(x.key); }
   for (const ev of [...events].sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))) {
-    let c = classify(ev, sites, settings);
+    let c = classify(ev, all, settings);
+    if (c.site && hid.has(c.site) && c.status !== 'exclude') c = { status: 'exclude', reason: 'hidden', site: c.site };
+    else if (c.status === 'unsure' && c.options) c = { ...c, options: c.options.filter(k => !hid.has(k)) };
     if (c.status === 'count') { const k = c.site + '|' + ev.date; if (seen.has(k)) c = { status: 'exclude', reason: 'dup', site: c.site }; else seen.add(k); }
     out.push({ ...ev, ...c });
   }
-  return { sites, events: out };
+  return { sites: all.filter(x => !x.hidden), allSites: all, events: out };
 }
 export const visitsOf = (a, key) => a.events.filter(e => e.status === 'count' && e.site === key);
 export function monthCounts(a, ym) { const r = {}; for (const s of a.sites) r[s.key] = 0; for (const e of a.events) if (e.status === 'count' && e.date.startsWith(ym)) r[e.site] = (r[e.site] || 0) + 1; return r; }
