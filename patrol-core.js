@@ -7,8 +7,14 @@ export const GROUP_RE = /協力会|支部|分科会|帯同|合同パトロール
 export const EVENT_RE = /ゴルフ|⛳|コンペ|大会|懇親|総会|例会|忘年会|新年会|暑気払い|慰安旅行|研修|カップ|CUP|表彰|納会/i;
 export const UNSURE_RE = /謝罪|式|組立|見学|キックオフ|監督署|打ち合わせ|打合せ|調査|お祝い|祝い|挨拶|会食|ご飯|面接|立会|MTG|会議/;
 export const GREY = '8'; // Google カレンダーの「グラファイト」
-export const REASONS = { grey: 'グレー（行っていない）', group: '団体のパトロール', event: '会社・団体の行事', manual: '手で外した', dup: '同じ日の2件目' };
-export const DEFAULT_SETTINGS = () => ({ aliases: {}, overrides: {}, special: [{ id: 'nenmatsu-2026', label: '年末特別目標', start: '2026-11-15', end: '2026-12-31', target: 3, category: '新築' }], monthlyTarget: 2, noTarget: [] });
+export const REASONS = { grey: 'グレー（行っていない）', group: '団体のパトロール', event: '会社・団体の行事', manual: '手で外した', dup: '同じ日の2件目', rule: '除外ルール' };
+export const CATEGORIES = ['新築', '改修', '']; // '' ＝区分未確認（目標の対象にしない）
+export const DEFAULT_SETTINGS = () => ({ aliases: {}, overrides: {}, special: [{ id: 'nenmatsu-2026', label: '年末特別目標', start: '2026-11-15', end: '2026-12-31', target: 3, category: '新築' }], monthlyTarget: 2, noTarget: [],
+  extraSites: [], // パトロール専用の現場（山積みに無い）：{ name, category: 新築|改修|'', team, done, note }
+  merge: {},      // 現場をまとめる：{ まとめられる現場キー: まとめ先キー }
+  rules: [],      // 予定名のルール：{ id, patterns: [文字], action: 'exclude'|'ask', label }
+  teams: {},      // 現場キー → チーム・元方など（自由記入）
+});
 
 // 文字をそろえる（全角半角・空白・かっこ）
 export function norm(s) { return String(s ?? '').normalize('NFKC').replace(/[\s　]/g, '').replace(/[()（）［］\[\]【】「」]/g, '').replace(/[\u{1F000}-\u{1FFFF}\u2600-\u27BF\uFE0F\u200D]/gu, ''); }
@@ -16,7 +22,7 @@ export const fyOf = date => { const y = Number(date.slice(0, 4)), m = Number(dat
 export const fyMonths = fy => Array.from({ length: 12 }, (_, i) => { const m = 4 + i; return m <= 12 ? `${fy}-${String(m).padStart(2, '0')}` : `${fy + 1}-${String(m - 12).padStart(2, '0')}`; });
 
 // 山積みの現場一覧 → パトロールの現場（同じ名前の土工・鳶工はひとつに）。改修も入れる（目標の赤は新築だけ）
-export function buildSites(roumu) {
+export function buildSites(roumu, settings = {}) {
   const m = new Map();
   for (const s of (roumu && roumu.sites) || []) {
     const key = norm(s.name); if (!key) continue;
@@ -25,27 +31,54 @@ export function buildSites(roumu) {
     if (!x.trades.includes(s.trade)) x.trades.push(s.trade); x.ids.push(s.id);
     if (s.kubun !== '竣') x.done = false;
   }
+  // パトロール専用の現場（山積みには入れない）
+  for (const e of settings.extraSites || []) {
+    const key = norm(e.name); if (!key || m.has(key)) continue;
+    m.set(key, { key, name: e.name, category: CATEGORIES.includes(e.category) ? e.category : '', trades: [], ids: [], done: !!e.done, extra: true, note: e.note || '' });
+  }
+  // まとめ（例：同じ現場の土工名・鳶名が違うとき）。まとめられた名前も当てはまりに使う
+  for (const [from, to] of Object.entries(settings.merge || {})) {
+    const a = m.get(from), b = m.get(to); if (!a || !b || a === b) continue;
+    for (const t of a.trades) if (!b.trades.includes(t)) b.trades.push(t);
+    b.ids.push(...a.ids); b.done = b.done && a.done; if (a.category === '新築') b.category = '新築';
+    b.alt = [...(b.alt || []), a.key, ...(a.alt || [])]; b.mergedNames = [...(b.mergedNames || []), a.name]; m.delete(from);
+  }
+  for (const x of m.values()) x.team = (settings.teams || {})[x.key] || (settings.extraSites || []).find(e => norm(e.name) === x.key)?.team || '';
   return [...m.values()];
 }
 const bigrams = s => { const a = []; for (let i = 0; i < s.length - 1; i++) a.push(s.slice(i, i + 2)); return a; };
 const commonPrefix = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
 export function similarity(title, name) { const b = bigrams(title); if (b.length < 2) return 0; const n = new Set(bigrams(name)); return b.filter(x => n.has(x)).length / b.length; }
-// 現場名との当てはまり：別名 → 現場名が予定に入っている → 予定名（4文字以上）が現場名に入っている
+// 現場名との当てはまり：別名（いちばん長く当たった別名が優先）→ 現場名が予定に入っている → 予定名（4文字以上）が現場名に入っている
 export function matchSites(ev, sites, aliases = {}) {
-  const title = norm(ev.title), text = norm([ev.title, ev.location].join(' ')), hit = new Map();
+  const title = norm(ev.title), text = norm([ev.title, ev.location].join(' ')), hit = new Map(), ali = [];
   for (const s of sites) {
-    for (const a of aliases[s.key] || []) { const na = norm(a); if (na.length >= 2 && text.includes(na)) hit.set(s.key, '別名「' + a + '」'); }
-    if (!hit.has(s.key) && text.includes(s.key)) hit.set(s.key, '現場名');
-    if (!hit.has(s.key) && title.length >= 4 && s.key.includes(title)) hit.set(s.key, '現場名の一部');
+    let best = 0, bestA = '';
+    for (const a of aliases[s.key] || []) { const na = norm(a); if (na.length >= 2 && text.includes(na) && na.length > best) { best = na.length; bestA = a; } }
+    if (best) { ali.push({ key: s.key, how: '別名「' + bestA + '」', len: best }); continue; }
+    for (const k of [s.key, ...(s.alt || [])]) {
+      if (!hit.has(s.key) && text.includes(k)) hit.set(s.key, '現場名');
+      if (!hit.has(s.key) && title.length >= 4 && k.includes(title)) hit.set(s.key, '現場名の一部');
+    }
   }
+  if (ali.length) { const L = Math.max(...ali.map(x => x.len)); return ali.filter(x => x.len === L).map(({ key, how }) => ({ key, how })); }
   return [...hit.entries()].map(([key, how]) => ({ key, how }));
+}
+// 予定名のルール（除外・要確認）。いちばん先に見る
+export function ruleOf(ev, rules = []) {
+  const t = norm(ev.title);
+  return rules.find(r => (r.patterns || []).some(p => norm(p).length >= 2 && t.includes(norm(p))));
 }
 // 予定ひとつの判定
 export function classify(ev, sites, settings = {}) {
   const ov = (settings.overrides || {})[ev.id];
   const text = [ev.title, ev.location, ev.desc].filter(Boolean).join(' ');
-  if (ov && ov.status === 'count' && sites.some(s => s.key === ov.site)) return { status: 'count', site: ov.site, how: '手で割り当て', manual: true };
-  if (ov && ov.status === 'exclude') return { status: 'exclude', reason: 'manual', manual: true, site: ov.site && sites.some(s => s.key === ov.site) ? ov.site : null };
+  if (ov && ov.status === 'count' && sites.some(s => s.key === ov.site)) return { status: 'count', site: ov.site, how: '手で割り当て', manual: true, note: ov.note || '' };
+  if (ov && ov.status === 'exclude') return { status: 'exclude', reason: 'manual', manual: true, site: ov.site && sites.some(s => s.key === ov.site) ? ov.site : null, note: ov.note || '' };
+  if (ov && ov.status === 'unsure') return { status: 'unsure', kind: 'ask', note: ov.note || '', options: ov.options || [], manual: true };
+  const rule = ruleOf(ev, settings.rules);
+  if (rule && rule.action === 'exclude') return { status: 'exclude', reason: 'rule', label: rule.label || '', rule: rule.id };
+  if (rule && rule.action === 'ask') return { status: 'unsure', kind: 'ask', note: rule.label || '', options: rule.options || [], rule: rule.id };
   const matches = matchSites(ev, sites, settings.aliases), patrolLike = PATROL_RE.test(text) || matches.length > 0;
   if (!patrolLike) {
     const t = norm(ev.title); if (t.length < 3) return { status: 'ignore' };
@@ -65,7 +98,7 @@ export function classify(ev, sites, settings = {}) {
 }
 // まとめ：同じ現場・同じ日は1回
 export function analyze(events, roumu, settings = DEFAULT_SETTINGS()) {
-  const sites = buildSites(roumu), out = [], seen = new Set(), off = new Set(settings.noTarget || []);
+  const sites = buildSites(roumu, settings), out = [], seen = new Set(), off = new Set(settings.noTarget || []);
   for (const x of sites) x.noTarget = off.has(x.key);
   for (const ev of [...events].sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))) {
     let c = classify(ev, sites, settings);
