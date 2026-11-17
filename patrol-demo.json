@@ -1,0 +1,1054 @@
+{
+ "note": "お試し表示用の架空データです（実在の現場・予定ではありません）",
+ "today": "2026-11-19",
+ "roumu": {
+  "sites": [
+   {
+    "id": "d1",
+    "name": "みなと台再開発",
+    "category": "新築",
+    "trade": "土工",
+    "kubun": "中"
+   },
+   {
+    "id": "d2",
+    "name": "みなと台再開発",
+    "category": "新築",
+    "trade": "鳶",
+    "kubun": "中"
+   },
+   {
+    "id": "d3",
+    "name": "さくら橋新築工事",
+    "category": "新築",
+    "trade": "鳶",
+    "kubun": "中"
+   },
+   {
+    "id": "d4",
+    "name": "緑ヶ丘病院新築工事",
+    "category": "新築",
+    "trade": "土工",
+    "kubun": "中"
+   },
+   {
+    "id": "d5",
+    "name": "青葉中学校改築",
+    "category": "新築",
+    "trade": "土工",
+    "kubun": "中"
+   },
+   {
+    "id": "d6",
+    "name": "ひかり物流センター",
+    "category": "新築",
+    "trade": "鳶",
+    "kubun": "中"
+   },
+   {
+    "id": "d7",
+    "name": "東町ビル改修",
+    "category": "改修",
+    "trade": "土工",
+    "kubun": "中"
+   },
+   {
+    "id": "d8",
+    "name": "北浜倉庫改修",
+    "category": "改修",
+    "trade": "鳶",
+    "kubun": "中"
+   },
+   {
+    "id": "d9",
+    "name": "旧市民会館解体",
+    "category": "新築",
+    "trade": "土工",
+    "kubun": "竣"
+   }
+  ]
+ },
+ "events": {
+  "from": "2026-04-01",
+  "to": "2026-11-19",
+  "calendars": [
+   "primary"
+  ],
+  "colorAvailable": true,
+  "syncedAt": "2026-11-19T00:00:00Z",
+  "events": [
+   {
+    "id": "demo1",
+    "date": "2026-04-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo9",
+    "date": "2026-04-03",
+    "time": "13:30",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo3",
+    "date": "2026-04-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo5",
+    "date": "2026-04-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo2",
+    "date": "2026-04-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo6",
+    "date": "2026-04-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo4",
+    "date": "2026-04-18",
+    "time": "13:30",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo8",
+    "date": "2026-04-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo7",
+    "date": "2026-04-27",
+    "time": "13:30",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo10",
+    "date": "2026-05-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo18",
+    "date": "2026-05-03",
+    "time": "13:30",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo12",
+    "date": "2026-05-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo13",
+    "date": "2026-05-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo11",
+    "date": "2026-05-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo15",
+    "date": "2026-05-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo17",
+    "date": "2026-05-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo14",
+    "date": "2026-05-22",
+    "time": "13:30",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo16",
+    "date": "2026-05-27",
+    "time": "13:30",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo19",
+    "date": "2026-06-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo28",
+    "date": "2026-06-03",
+    "time": "13:30",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo22",
+    "date": "2026-06-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo78",
+    "date": "2026-06-12",
+    "time": "10:00",
+    "title": "協力会 合同パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo24",
+    "date": "2026-06-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo20",
+    "date": "2026-06-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo26",
+    "date": "2026-06-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo23",
+    "date": "2026-06-18",
+    "time": "13:30",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo27",
+    "date": "2026-06-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo25",
+    "date": "2026-06-22",
+    "time": "13:30",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo21",
+    "date": "2026-06-22",
+    "time": "15:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo29",
+    "date": "2026-06-27",
+    "time": "09:00",
+    "title": "東町ビル改修 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo30",
+    "date": "2026-07-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo32",
+    "date": "2026-07-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo34",
+    "date": "2026-07-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo31",
+    "date": "2026-07-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo36",
+    "date": "2026-07-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo33",
+    "date": "2026-07-18",
+    "time": "13:30",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo38",
+    "date": "2026-07-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo35",
+    "date": "2026-07-22",
+    "time": "13:30",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo37",
+    "date": "2026-07-27",
+    "time": "13:30",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo39",
+    "date": "2026-08-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo47",
+    "date": "2026-08-03",
+    "time": "13:30",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo41",
+    "date": "2026-08-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo42",
+    "date": "2026-08-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo40",
+    "date": "2026-08-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo44",
+    "date": "2026-08-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo84",
+    "date": "2026-08-19",
+    "time": "10:00",
+    "title": "緑ヶ丘",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo46",
+    "date": "2026-08-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo43",
+    "date": "2026-08-22",
+    "time": "13:30",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo45",
+    "date": "2026-08-27",
+    "time": "13:30",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo48",
+    "date": "2026-09-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo57",
+    "date": "2026-09-03",
+    "time": "13:30",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo80",
+    "date": "2026-09-05",
+    "time": "10:00",
+    "title": "⛳ みなと台カントリー ゴルフ",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo50",
+    "date": "2026-09-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo52",
+    "date": "2026-09-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo49",
+    "date": "2026-09-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo54",
+    "date": "2026-09-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo51",
+    "date": "2026-09-18",
+    "time": "13:30",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo56",
+    "date": "2026-09-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo53",
+    "date": "2026-09-22",
+    "time": "13:30",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo55",
+    "date": "2026-09-27",
+    "time": "13:30",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo58",
+    "date": "2026-10-03",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo82",
+    "date": "2026-10-07",
+    "time": "10:00",
+    "title": "みなと台 近隣挨拶",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo61",
+    "date": "2026-10-08",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo62",
+    "date": "2026-10-13",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo59",
+    "date": "2026-10-13",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo77",
+    "date": "2026-10-14",
+    "time": "10:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": "8",
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo63",
+    "date": "2026-10-18",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo79",
+    "date": "2026-10-20",
+    "time": "10:00",
+    "title": "安全協議会 役員PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo64",
+    "date": "2026-10-22",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo60",
+    "date": "2026-10-22",
+    "time": "15:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo65",
+    "date": "2026-10-27",
+    "time": "09:00",
+    "title": "北浜倉庫改修 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo85",
+    "date": "2026-11-02",
+    "time": "10:00",
+    "title": "銀行 打合せ",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo76",
+    "date": "2026-11-05",
+    "time": "10:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": "8",
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo83",
+    "date": "2026-11-11",
+    "time": "10:00",
+    "title": "みなと台さくら橋 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo81",
+    "date": "2026-11-12",
+    "time": "10:00",
+    "title": "駅前PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo66",
+    "date": "2026-11-16",
+    "time": "09:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo69",
+    "date": "2026-11-16",
+    "time": "09:00",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo71",
+    "date": "2026-11-16",
+    "time": "09:00",
+    "title": "緑ヶ丘病院 巡回",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo72",
+    "date": "2026-11-16",
+    "time": "09:00",
+    "title": "青葉中学校 PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo73",
+    "date": "2026-11-16",
+    "time": "09:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo67",
+    "date": "2026-11-17",
+    "time": "13:30",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo70",
+    "date": "2026-11-17",
+    "time": "13:30",
+    "title": "さくら橋 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo74",
+    "date": "2026-11-17",
+    "time": "13:30",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo68",
+    "date": "2026-11-18",
+    "time": "15:00",
+    "title": "みなと台PT",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   },
+   {
+    "id": "demo75",
+    "date": "2026-11-18",
+    "time": "15:00",
+    "title": "ひかり物流 パトロール",
+    "location": "",
+    "desc": "",
+    "colorId": null,
+    "cal": "primary",
+    "rec": false
+   }
+  ]
+ },
+ "settings": {
+  "aliases": {
+   "みなと台再開発": [
+    "みなと台"
+   ],
+   "さくら橋新築工事": [
+    "さくら橋"
+   ],
+   "緑ヶ丘病院新築工事": [
+    "緑ヶ丘病院"
+   ],
+   "青葉中学校改築": [
+    "青葉中学校"
+   ],
+   "ひかり物流センター": [
+    "ひかり物流"
+   ],
+   "東町ビル改修": [
+    "東町ビル"
+   ],
+   "北浜倉庫改修": [
+    "北浜倉庫"
+   ]
+  },
+  "overrides": {},
+  "special": [
+   {
+    "id": "nenmatsu-2026",
+    "label": "年末特別目標",
+    "start": "2026-11-15",
+    "end": "2026-12-31",
+    "target": 3,
+    "category": "新築"
+   }
+  ],
+  "monthlyTarget": 2
+ }
+}
