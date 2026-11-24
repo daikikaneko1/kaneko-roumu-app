@@ -107,7 +107,7 @@ function render() {
   showStatus();
 }
 const handlers = {};
-function bind() { bindYear();
+function bind() { bindYear(); bindGridNow(); document.querySelectorAll('#main g.tgw').forEach(bindTargetDrag);
   const sc = $('#main .site-mtn .chart-scroll'); if (sc && sc.scrollWidth > sc.clientWidth) sc.scrollLeft = Math.max(0, Number(sc.dataset.selx) - Math.max(0, (sc.clientWidth - Number(sc.dataset.selw)) / 2));
   ['#mfrom', '#mto'].forEach(k => { const el = $(k); if (el) el.onchange = () => { keepMv(); readPeriod(); ui.keepScroll = true; render(); }; });
   $('#main').querySelectorAll('[data-ch]').forEach(el => { el.onchange = () => { ui.keepScroll = true; handlers[el.dataset.ch] && handlers[el.dataset.ch](el.value); }; });
@@ -452,24 +452,34 @@ handlers.mstepv = k => { const i = $('#mv'); ui.mv = Math.max(0, (Number(i.value
 handlers.mfill = id => { keepMv(); const v = ui.mv ?? 3; if (!ui.ms.length) return; op({ t: 'days', id, dates: ui.ms.slice().sort(), v }); ui.ms = []; render(); };
 
 // ---------- 5カ年 ----------
+const nowc = ym => (ym === curYm() ? 'now' : ''); // 今月の列（赤い縦線）
+// 5カ年山積表を開いた・年度や職種を変えたときだけ、今月の列が見える所まで横に送る（数字を直したあとは動かさない）
+function bindGridNow() {
+  const th = document.querySelector('#main table.g5 th.now'), key = `${ui.gridFY}|${ui.trade}`;
+  if (!document.querySelector('#main table.g5')) { ui.g5key = null; return; }
+  if (!th || ui.g5key === key) { ui.g5key = key; return; }
+  ui.g5key = key; const wrap = th.closest('.grid-wrap'), nm = wrap.querySelector('th.nm');
+  const nw = nm ? nm.offsetWidth : 0, vis = wrap.clientWidth - nw; // 名前の列を除いた見える幅の真ん中に今月
+  wrap.scrollLeft = Math.max(0, wrap.scrollLeft + th.getBoundingClientRect().left - wrap.getBoundingClientRect().left - nw - (vis - th.offsetWidth) / 2);
+}
 function vGrid() {
   const doc = D(), months = L.fyMonths(ui.gridFY), nDaily = months.filter(ym => L.inWindow(doc, ym)).length;
   const sites = L.sortedSites(doc, ui.trade, OPT()); const tots = months.map(ym => L.monthTotals(doc, ym, OPT())[ui.trade]);
   let h = `<h2>5カ年山積表 <small class="muted">人/日</small></h2>${tradeTabs()}${doneToggle(ui.trade)}${fyTabs(ui.gridFY, 'gfy')}
    <p class="muted small">${nDaily ? '青い列は日別データから計算した月平均です（数字をタップで変更→日に割り振り）。日別でない月は月の値です。' : 'マスをタップすると数字を変えられます。'}</p>
-   <div class="grid-wrap"><table class="grid"><thead><tr><th class="nm">工事名</th>${months.map(ym => `<th>${L.parseYm(ym).m}月</th>`).join('')}</tr></thead><tbody>`;
+   <div class="grid-wrap"><table class="grid g5"><thead><tr><th class="nm">工事名</th>${months.map(ym => `<th class="${nowc(ym)}">${ym === curYm() ? `<b>${L.parseYm(ym).m}月</b>` : `${L.parseYm(ym).m}月`}</th>`).join('')}</tr></thead><tbody>`;
   for (const cat of L.CATEGORIES) {
     for (const s of sites.filter(x => x.category === cat)) {
       h += `<tr><td class="nm" data-a="go|site/${s.id}"><span class="kb ${esc(s.kubun)}" style="min-width:24px;height:24px;font-size:12px">${esc(s.kubun || '－')}</span> ${esc(s.name)}${L.isDone(s) ? '（竣工）' : ''}</td>`;
-      for (const ym of months) { const mi = L.monthInfo(doc, s, ym); h += `<td class="c ${mi.daily ? 'd' : ''} ${mi.edited ? 'e' : ''}" data-a="medit|${s.id}|${ym}">${L.fmt1(mi.value)}</td>`; }
+      for (const ym of months) { const mi = L.monthInfo(doc, s, ym); h += `<td class="c ${mi.daily ? 'd' : ''} ${mi.edited ? 'e' : ''} ${nowc(ym)}" data-a="medit|${s.id}|${ym}">${L.fmt1(mi.value)}</td>`; }
       h += '</tr>';
     }
-    h += `<tr class="tot"><td class="nm">${cat}${L.TRADES[ui.trade]}計</td>${tots.map(t => `<td>${L.fmt1(t[cat]) || '0'}</td>`).join('')}</tr>`;
+    h += `<tr class="tot"><td class="nm">${cat}${L.TRADES[ui.trade]}計</td>${tots.map((t, i) => `<td class="${nowc(months[i])}">${L.fmt1(t[cat]) || '0'}</td>`).join('')}</tr>`;
   }
   const mode = doc.settings.estimateMode === 'fixed' ? '×22日' : 'カレンダー';
-  h += `<tr class="tot"><td class="nm">${L.TRADES[ui.trade]}合計</td>${tots.map(t => `<td>${L.fmt1(t.合計) || '0'}</td>`).join('')}</tr>
-    <tr class="tot"><td class="nm">月間稼働予測（${mode}）</td>${tots.map(t => `<td>${Math.round(t.est)}</td>`).join('')}</tr>
-    <tr class="tot neg"><td class="nm">余力（目標${tots[0].target}人−合計）</td>${tots.map(t => `<td class="v">${L.fmt1(t.target - t.合計) || '0'}</td>`).join('')}</tr>
+  h += `<tr class="tot"><td class="nm">${L.TRADES[ui.trade]}合計</td>${tots.map((t, i) => `<td class="${nowc(months[i])}">${L.fmt1(t.合計) || '0'}</td>`).join('')}</tr>
+    <tr class="tot"><td class="nm">月間稼働予測（${mode}）</td>${tots.map((t, i) => `<td class="${nowc(months[i])}">${Math.round(t.est)}</td>`).join('')}</tr>
+    <tr class="tot neg"><td class="nm">余力（目標${tots[0].target}人−合計）</td>${tots.map((t, i) => `<td class="v ${nowc(months[i])}">${L.fmt1(t.target - t.合計) || '0'}</td>`).join('')}</tr>
     </tbody></table></div><p class="muted small">黄色＝日別で手入力した月。余力がマイナス（赤）は人が足りない月。</p>`;
   return h;
 }
@@ -482,7 +492,7 @@ function chartAvail() {
   const cs = getComputedStyle(main);
   return Math.max(340, Math.round(main.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
 }
-function barChart(labels, series, { target, unit = '', w = chartAvail() } = {}) {
+function barChart(labels, series, { target, unit = '', w = chartAvail(), trade = '' } = {}) {
   const H = window.innerWidth >= 900 ? 300 : 240, pl = 40, pr = 8, pt = 18, pb = 28, n = labels.length;
   const max = Math.max(1, target || 0, ...series.flatMap(s => s.values)) * 1.12;
   const bw = (w - pl - pr) / n, gw = bw * 0.8 / series.length;
@@ -494,7 +504,7 @@ function barChart(labels, series, { target, unit = '', w = chartAvail() } = {}) 
       g += `<rect x="${x}" y="${y}" width="${gw - 1}" height="${hh}" fill="${s.color}"/>`; if (v && n <= 13) g += `<text x="${x + gw / 2}" y="${y - 3}" font-size="11" text-anchor="middle">${Math.round(v * 10) / 10}</text>`; });
     if (n <= 13 || i % 2 === 0) g += `<text x="${pl + i * bw + bw / 2}" y="${H - 10}" font-size="11" text-anchor="middle" fill="#444">${lb}</text>`;
   });
-  if (target) { const y = pt + (H - pt - pb) * (1 - target / max); g += `<line x1="${pl}" x2="${w - pr}" y1="${y}" y2="${y}" stroke="#333" stroke-dasharray="6 4"/><text x="${w - pr}" y="${y - 4}" font-size="11" text-anchor="end">目標${target}${unit}</text>`; }
+  if (target) { const y = pt + (H - pt - pb) * (1 - target / max); g += trade ? `<g class="tgw" data-trade="${trade}" data-tmax="${max}" data-tpt="${pt}" data-tbot="${H - pb}" data-tval="${target}" transform="translate(0,${y})"><line x1="${pl}" x2="${w - pr}" y1="0" y2="0" stroke="#333" stroke-dasharray="6 4"/><text class="tgl" data-fmt="目標{v}${unit} ⇕" x="${w - pr}" y="-4" font-size="11" text-anchor="end">目標${target}${unit} ⇕</text><line class="tghit" x1="${pl}" x2="${w - pr}" y1="0" y2="0"><title>上下にドラッグで目標人数を変える</title></line></g>` : `<line x1="${pl}" x2="${w - pr}" y1="${y}" y2="${y}" stroke="#333" stroke-dasharray="6 4"/><text x="${w - pr}" y="${y - 4}" font-size="11" text-anchor="end">目標${target}${unit}</text>`; }
   return g + '</svg>';
 }
 // ---- 集計：グループ選択（鳶工/土工 × 一部/二部）と期間（1年/3カ年/5カ年） ----
@@ -521,7 +531,11 @@ function stackedChart(months, data, { targets = [] } = {}) {
   const pts = data.total.map((v, i) => `${pl + i * bw + bw / 2},${Y(v)}`).join(' ');
   g += `<polyline points="${pts}" fill="none" stroke="#222" stroke-width="1.6"/>`;
   data.total.forEach((v, i) => { const x = pl + i * bw + bw / 2; g += `<circle cx="${x}" cy="${Y(v)}" r="2.5" fill="#222"/>`; if (v) g += `<text x="${x}" y="${Y(v) - 5}" font-size="10" text-anchor="middle" fill="#222">${n <= 12 ? L.fmt1(v) : Math.round(v)}</text>`; });
-  for (const t of targets) g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(t.value)}" y2="${Y(t.value)}" stroke="#c62828" stroke-width="1.4" stroke-dasharray="7 4"/><text x="${pl + 4}" y="${Y(t.value) - 4}" font-size="11" fill="#c62828">${t.label}</text>`;
+  const ti = months.indexOf(curYm());
+  if (ti >= 0) { const td = today(), x = pl + ti * bw + bw * ((Number(td.slice(8)) - 0.5) / L.daysInMonth(curYm()));
+    g += `<line x1="${x}" x2="${x}" y1="${pt - 6}" y2="${H - pb}" stroke="#e5383b" stroke-width="2"/><rect x="${x - 15}" y="${pt - 20}" width="30" height="15" rx="7.5" fill="#e5383b"/><text x="${x}" y="${pt - 9}" font-size="10" font-weight="700" text-anchor="middle" fill="#fff">今日</text>`; }
+  for (const t of targets) g += t.trade ? `<g class="tgw" data-trade="${t.trade}" data-tmax="${max}" data-tpt="${pt}" data-tbot="${H - pb}" data-tval="${t.value}" transform="translate(0,${Y(t.value)})"><line x1="${pl}" x2="${W - pr}" y1="0" y2="0" stroke="#c62828" stroke-width="1.4" stroke-dasharray="7 4"/><text class="tgl" data-fmt="${L.TRADES[t.trade]}目標 {v}人 ⇕" x="${pl + 4}" y="-4" font-size="11" fill="#c62828">${t.label} ⇕</text><line class="tghit" x1="${pl}" x2="${W - pr}" y1="0" y2="0"><title>上下にドラッグで目標人数を変える</title></line></g>`
+    : `<line x1="${pl}" x2="${W - pr}" y1="${Y(t.value)}" y2="${Y(t.value)}" stroke="#c62828" stroke-width="1.4" stroke-dasharray="7 4"/><text x="${pl + 4}" y="${Y(t.value) - 4}" font-size="11" fill="#c62828">${t.label}</text>`;
   g += `<text x="${pl}" y="${H - 6}" font-size="11" fill="#777">月（人/日・1日あたり平均）</text>`;
   return `<div class="chart-scroll">${g}</svg></div>`;
 }
@@ -555,7 +569,7 @@ function vSum() {
     const R = Math.round;
     trades.forEach((t, ti) => {
       const td = trades.length > 1 ? L.groupSeries(doc, months, sel.filter(k => k.startsWith(t)), OPTG()) : data;
-      const tv = s.targets?.[t] || 0, targets = tv ? [{ value: tv, label: `${L.TRADES[t]}目標 ${tv}人` }] : [];
+      const tv = s.targets?.[t] || 0, targets = tv ? [{ value: tv, label: `${L.TRADES[t]}目標 ${tv}人`, trade: t }] : [];
       const tot = trades.length > 1 ? `${L.TRADES[t]}の合計` : '選択の合計';
       h += `<h3 class="trade-h ${t}">${L.TRADES[t]}の山積み ${start}年度${years > 1 ? `～${start + years - 1}年度` : ''}（${td.series.map(x => x.label).join('・')}）</h3>
         <div class="legend">${td.series.map(x => `<span><i style="background:${x.color}"></i>${x.label}</span>`).join('')}<span><i style="background:#222;height:3px;vertical-align:4px"></i>${tot}</span>${targets.length ? `<span style="color:#c62828">--- 目標</span>` : ''}</div>
@@ -577,7 +591,7 @@ function vSum() {
     const dates = L.datesOfMonth(ui.sumYm), dt = dates.map(d => L.dayTotals(doc, d, OPTG()));
     const trades = Object.keys(L.TRADES).filter(t => sel.some(k => k.startsWith(t)));
     h += monthNav(ui.sumYm, 'symon', months);
-    for (const t of trades) h += `<h3>${L.TRADES[t]}（人）${sel.filter(k => k.startsWith(t)).length === 1 ? '・' + L.GROUPS.find(g => sel.includes(g.key) && g.trade === t).label.split(' ')[1] : ''}</h3>` + barChart(dates.map(d => Number(d.slice(8))), [{ values: dt.map(x => x[t]), color: `var(--${t})` }], { target: s.targets?.[t], unit: '人' });
+    for (const t of trades) h += `<h3>${L.TRADES[t]}（人）${sel.filter(k => k.startsWith(t)).length === 1 ? '・' + L.GROUPS.find(g => sel.includes(g.key) && g.trade === t).label.split(' ')[1] : ''}</h3>` + barChart(dates.map(d => Number(d.slice(8))), [{ values: dt.map(x => x[t]), color: `var(--${t})` }], { target: s.targets?.[t], unit: '人', trade: t });
     h += `<div class="grid-wrap" style="margin-top:10px"><table class="grid"><thead><tr><th class="nm">日</th>${trades.map(t => `<th>${L.TRADES[t]}</th>`).join('')}</tr></thead><tbody>
       ${dates.map((d, i) => { const cd = L.companyDay(doc, d); return `<tr><td class="nm">${Number(d.slice(8))}日（${WD[L.dow(d)]}）${cd.work ? '' : `<small style="color:#c62828"> ${esc(cd.reason)}</small>`}</td>${trades.map(t => `<td>${dt[i][t] || ''}</td>`).join('')}</tr>`; }).join('')}
       <tr class="tot"><td class="nm">人工合計</td>${trades.map(t => `<td>${dt.reduce((a, x) => a + x[t], 0)}</td>`).join('')}</tr></tbody></table></div>${trades.length > 1 ? '<p class="muted small">土工と鳶工は別々に出しています（足し合わせません）。</p>' : ''}`;
@@ -652,6 +666,26 @@ handlers.ctap = d => {
 };
 handlers.sat = m => op({ t: 'settings', patch: { saturday: m } });
 handlers.fixd = m => numberSheet({ title: `${m}月の×22方式の日数`, value: D().settings.fixedDays?.[m] ?? 22, step: 1, onOk: v => op({ t: 'settings', patch: { fixedDays: { ...D().settings.fixedDays, [m]: Math.round(v) } } }) });
+// ---- 山積みの目標人数の点線をドラッグで動かす（1カ年・集計の月ごと／日ごと。設定の「目標人数」と同じ値）----
+function bindTargetDrag(w) {
+  const hit = w.querySelector('.tghit'), svg = w.ownerSVGElement; if (!hit || !svg) return;
+  const d = w.dataset, t = d.trade, max = Number(d.tmax), top = Number(d.tpt), bot = Number(d.tbot), orig = Number(d.tval);
+  let drag = false, val = orig;
+  const toY = v => top + (bot - top) * (1 - v / max);
+  const fromEvent = e => { const m = svg.getScreenCTM(); if (!m) return val; const y = (e.clientY - m.f) / m.d; return Math.max(0, Math.min(Math.floor(max), Math.round(max * (1 - (y - top) / (bot - top))))); };
+  const show = v => { w.setAttribute('transform', `translate(0,${toY(v)})`); w.querySelectorAll('.tgl').forEach(x => { x.textContent = x.dataset.fmt.replace('{v}', v); }); };
+  hit.onclick = e => e.stopPropagation();
+  hit.onpointerdown = e => { e.preventDefault(); e.stopPropagation(); drag = true; val = orig; w.classList.add('on'); hit.setPointerCapture(e.pointerId); };
+  hit.onpointermove = e => { if (!drag) return; const v = fromEvent(e); if (v !== val) { val = v; show(v); } };
+  hit.onpointerup = e => {
+    if (!drag) return; drag = false; w.classList.remove('on');
+    try { hit.releasePointerCapture(e.pointerId); } catch { }
+    if (val === orig) return show(orig);
+    if (!confirm(`${L.TRADES[t]}の目標人数を ${orig}人 → ${val}人 に変えますか？\n（設定の「目標人数」・余力の計算も変わります）`)) return show(orig);
+    ui.keepScroll = true; op({ t: 'settings', patch: { targets: { ...D().settings.targets, [t]: val } } });
+  };
+  hit.onpointercancel = () => { drag = false; w.classList.remove('on'); show(orig); };
+}
 handlers.tgt = t => numberSheet({ title: `${L.TRADES[t]}の目標人数`, value: D().settings.targets?.[t] ?? 0, step: 1, onOk: v => op({ t: 'settings', patch: { targets: { ...D().settings.targets, [t]: Math.round(v) } } }) });
 handlers.roll = fy => { if (confirm(`日別の年度を ${fy}年度に進めますか？\n（${fy - 1}年度は月平均で固定されます）`)) op({ t: 'roll', fy: Number(fy) }); };
 
