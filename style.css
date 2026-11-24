@@ -334,3 +334,8 @@ table.ygrid tr.yrow th.nm{cursor:pointer;text-overflow:ellipsis}
 #sheet .conc-toggle{display:flex;align-items:center;justify-content:center;gap:6px;margin:6px 0 10px;border-radius:12px;background:#f6f5f2;border:1px solid #c9ccd1;font-weight:700}
 #sheet .conc-toggle b{margin-left:4px;font-size:12px;color:#6b7686;font-weight:600}#sheet .conc-toggle.on{background:#e5e7ea;border-color:#8d939b;box-shadow:inset 0 0 0 2px #f2a900}#sheet .conc-toggle.on b{color:#8a5a00}
 @media(min-width:900px){table.ygrid th,table.ygrid td{height:30px}table.ygrid tr.h1 th{height:26px}table.ygrid tr.h2 th{top:26px;height:24px}table.ygrid tr.h3 th{top:50px;height:18px}table.ygrid tr.h4 th{top:68px;height:30px}table.ygrid th.ymh span{left:230px}table.ygrid td input.yin{height:29px;line-height:29px}}
+
+/* 山積みの目標人数の点線（ドラッグで動かす） */
+.tghit{stroke:transparent;stroke-width:24;cursor:ns-resize;touch-action:none;pointer-events:stroke}.tgw .tgl{font-weight:600}.tgw.on line:not(.tghit){stroke:#e65100;stroke-width:2.5;stroke-dasharray:none}.tgw.on .tgl{fill:#e65100}
+/* 5カ年山積表：今月の列（1カ年の「今日」と同じ赤） */
+table.grid.g5 .now{border-left:2px solid #e5383b}table.grid.g5 tbody td.now:not(.e):not(.d){background-color:#fff6f6}table.grid.g5 thead th.now b{display:inline-block;padding:0 6px;line-height:20px;border-radius:10px;background:#e5383b;color:#fff}

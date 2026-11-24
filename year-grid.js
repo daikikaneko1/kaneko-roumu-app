@@ -45,8 +45,10 @@ export function yearChartSvg(m, { colW = 30, H = 130 } = {}) {
     if (colW >= 26) g += `<text class="yv" x="${i * colW + colW / 2}" y="${y - 3}" font-size="10" font-weight="600" text-anchor="middle" fill="#3b4656">${v}</text>`; });
   for (let k = 2; k <= 4; k += 2) m.months.forEach(ym => { const i = m.dates.findIndex(d => d.ym === ym); g += `<text class="yax" x="${i * colW + 4}" y="${Y(step * k) + 11}" font-size="9" fill="#9aa5b4">${Math.round(step * k * 10) / 10}</text>`; });
   m.dates.forEach((d, i) => { if (d.first) g += `<line class="ymon" x1="${i * colW}" x2="${i * colW}" y1="0" y2="${H}" stroke="#b8c1cc"/><text class="ymt" x="${i * colW + 5}" y="12" font-size="11" font-weight="700" fill="#4a5566">${Number(d.ym.slice(5))}月</text>`; });
-  if (m.target) { g += `<line class="ytarget" x1="0" x2="${W}" y1="${Y(m.target)}" y2="${Y(m.target)}" stroke="#4a5566" stroke-width="1.2" stroke-dasharray="5 4"/>`;
-    m.months.forEach(ym => { const i = m.dates.findIndex(d => d.ym === ym); g += `<text class="ytl" x="${(i + 1) * colW + 40}" y="${Y(m.target) - 3}" font-size="9" fill="#4a5566">目標${m.target}</text>`; }); }
+  // 目標の点線：上下にドラッグで目標人数を変えられる（画面側の bindTargetDrag。data-t* が目盛りの情報）
+  if (m.target) { g += `<g class="tgw" data-trade="${m.trade}" data-tmax="${max}" data-tpt="${pt}" data-tbot="${H - pb}" data-tval="${m.target}" transform="translate(0,${Y(m.target)})"><line class="ytarget" x1="0" x2="${W}" y1="0" y2="0" stroke="#4a5566" stroke-width="1.2" stroke-dasharray="5 4"/>`;
+    m.months.forEach(ym => { const i = m.dates.findIndex(d => d.ym === ym); g += `<text class="ytl tgl" data-fmt="目標{v} ⇕" x="${(i + 1) * colW + 40}" y="-3" font-size="9" fill="#4a5566">目標${m.target} ⇕</text>`; });
+    g += `<line class="tghit" x1="0" x2="${W}" y1="0" y2="0"><title>上下にドラッグで目標人数を変える</title></line></g>`; }
   // コンクリートの日：上の段に「灰色の板＋黄色の点」（何現場かは数字で）
   (m.concrete || []).forEach((names, i) => { if (!names.length) return; const cx = i * colW + colW / 2;
     g += `<g class="yconc" data-date="${m.dates[i].date}" data-n="${names.length}"><title>コンクリート：${names.map(x => String(x).replace(/[<&>"]/g, '')).join('、')}</title><rect x="${cx - 8}" y="16" width="16" height="10" rx="3" fill="#9aa1a9"/><circle cx="${cx + 6}" cy="17" r="3" fill="#f2a900" stroke="#fff" stroke-width="1"/>${names.length > 1 ? `<text x="${cx - 1}" y="24.5" font-size="8" font-weight="700" text-anchor="middle" fill="#fff">${names.length}</text>` : ''}</g>`; });
