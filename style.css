@@ -339,3 +339,4 @@ table.ygrid tr.yrow th.nm{cursor:pointer;text-overflow:ellipsis}
 .tghit{stroke:transparent;stroke-width:24;cursor:ns-resize;touch-action:none;pointer-events:stroke}.tgw .tgl{font-weight:600}.tgw.on line:not(.tghit){stroke:#e65100;stroke-width:2.5;stroke-dasharray:none}.tgw.on .tgl{fill:#e65100}
 /* 5カ年山積表：今月の列（1カ年の「今日」と同じ赤） */
 table.grid.g5 .now{border-left:2px solid #e5383b}table.grid.g5 tbody td.now:not(.e):not(.d){background-color:#fff6f6}table.grid.g5 thead th.now b{display:inline-block;padding:0 6px;line-height:20px;border-radius:10px;background:#e5383b;color:#fff}
+.ymsel select{flex:1;min-width:0;font-size:16px;padding:10px 8px;border:1px solid var(--line);border-radius:10px;background:#fff}

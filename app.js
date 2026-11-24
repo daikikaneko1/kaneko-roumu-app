@@ -328,7 +328,7 @@ function vEdit(id) {
    <label class="f">区分</label>${chips('kubun', L.KUBUN)}
    <p class="muted small">入=入場中 現=施工中 指=指名 計=計画 営=営業中（Excelと同じ記号）</p>
    ${tx('name', '工事名（必須）')}${tx('bu', '部', '例：1、特、RN')}${tx('shocho', '所長', '名前（空でもよい）')}${tx('kessai', '決裁者', '名前（空でもよい）')}${tx('shokucho', '職長')}
-   <div class="flex"><div>${tx('start', '工期（始）', 'R08.06')}</div><div>${tx('end', '工期（終）', 'R10.12')}</div></div>
+   ${ymSel(d, 'start', '工期（始）')}${ymSel(d, 'end', '工期（終）')}
    <label class="f">月数</label><input type="number" inputmode="decimal" data-k="months" value="${esc(d.months ?? '')}">
    ${tx('note', 'メモ')}
    <label class="f">この現場の曜日（定休日・日曜稼働など）</label>
@@ -340,11 +340,35 @@ function vEdit(id) {
    ${isNew ? '' : (L.isDone(site(id) || {}) ? `<button class="wide" data-a="doneUnset|${id}">↩ 竣工を解除</button>` : `<button class="wide" data-a="doneSet|${id}">🏁 竣工にする</button>`)}
    ${isNew ? '' : '<button class="danger wide" data-a="ddel">この現場を削除</button>'}`;
 }
-function readDraft() { document.querySelectorAll('[data-k]').forEach(i => { draft[i.dataset.k] = i.type === 'number' ? (i.value === '' ? null : Number(i.value)) : i.value.trim(); }); }
+function readDraft() {
+  document.querySelectorAll('[data-k]').forEach(i => { draft[i.dataset.k] = i.type === 'number' ? (i.value === '' ? null : Number(i.value)) : i.value.trim(); });
+  // 工期：年・月を選んだら和暦の「R08.06」形式で入れる（Excelと同じ）。両方空＝空。読めない元の入力は、さわらなければそのまま
+  document.querySelectorAll('[data-ky]').forEach(sy => {
+    const k = sy.dataset.ky, sm = document.querySelector(`[data-km="${k}"]`), y = sy.value, m = sm.value;
+    draft._ym = { ...(draft._ym || {}), [k]: { y, m } };
+    if (y && m) draft[k] = eraYm(Number(y), Number(m));
+    else if (!y && !m) { if (L.parseStartYm(draft[k])) draft[k] = ''; }
+  });
+}
+// 西暦の年月 → 和暦の「R08.06」（2019年5月より前は平成「H30.04」）
+const eraYm = (y, m) => { const r = y > 2019 || (y === 2019 && m >= 5); return `${r ? 'R' : 'H'}${String(r ? y - 2018 : y - 1988).padStart(2, '0')}.${String(m).padStart(2, '0')}`; };
+const eraYearLabel = y => (y >= 2019 ? `令和${y === 2019 ? '元' : y - 2018}年（${y}）` : `平成${y - 1988}年（${y}）`);
+// 工期の入力：年と月をえらぶ（手で打たないので西暦・和暦がまざらない）
+function ymSel(d, k, lbl) {
+  const raw = String(d[k] ?? '').trim(), ym = L.parseStartYm(raw), keep = d._ym && d._ym[k];
+  const y = keep ? keep.y : ym ? ym.slice(0, 4) : '', m = keep ? keep.m : ym ? String(Number(ym.slice(5))) : '';
+  const now = Number(today().slice(0, 4)), lo = Math.min(2015, Number(y) || now), hi = Math.max(now + 12, Number(y) || now);
+  const ys = []; for (let v = lo; v <= hi; v++) ys.push(v);
+  return `<label class="f">${lbl}</label><div class="flex ymsel"><select data-ky="${k}" aria-label="${lbl}の年"><option value="">年 －</option>${ys.map(v => `<option value="${v}" ${String(v) === String(y) ? 'selected' : ''}>${eraYearLabel(v)}</option>`).join('')}</select>
+   <select data-km="${k}" aria-label="${lbl}の月"><option value="">月 －</option>${Array.from({ length: 12 }, (_, i) => i + 1).map(v => `<option value="${v}" ${String(v) === String(m) ? 'selected' : ''}>${v}月</option>`).join('')}</select></div>
+   ${raw && !ym ? `<p class="muted small warn">今の入力「${esc(raw)}」は年月として読めません。年と月をえらび直してください（えらばなければそのまま残します）。</p>` : ''}`;
+}
 handlers.wk = i => { readDraft(); const w = { ...(draft.week || {}) }; w[i] = !w[i] ? 'off' : w[i] === 'off' ? 'work' : undefined; if (!w[i]) delete w[i]; draft.week = w; render(); };
 handlers.dset = (k, v) => { readDraft(); draft[k] = v; if (k === 'division') draft._divSet = true; if (k === 'category' && draft._for === 'new' && !draft._divSet) draft.division = v === '改修' ? '2' : '1'; render(); };
 handlers.dsave = () => {
   readDraft(); if (!draft.name) { alert('工事名を入れてください'); return; }
+  for (const [k, lb] of [['start', '工期（始）'], ['end', '工期（終）']]) { const p = (draft._ym || {})[k]; if (p && !!p.y !== !!p.m) { alert(`${lb}は年と月の両方をえらんでください`); return; } }
+  { const a = L.parseStartYm(draft.start), b = L.parseStartYm(draft.end); if (a && b && a > b) { alert('工期（終）が工期（始）より前になっています'); return; } }
   const isNew = draft._for === 'new'; const id = isNew ? L.newId() : draft.id;
   const f = {}; for (const k of ['trade', 'category', 'division', 'kubun', 'name', 'bu', 'shocho', 'shokucho', 'kessai', 'start', 'end', 'months', 'note']) f[k] = draft[k] ?? '';
   f.week = L.cleanWeek(draft.week); f.unitPrice = L.cleanPrice(draft.unitPrice);
