@@ -37,12 +37,17 @@ td.c{min-width:34px;cursor:pointer;font-weight:700}td.red{background:#fdecea;col
 .login{max-width:420px;margin:40px auto}input[type=password],input[type=text],input[type=date],input[type=number]{font:inherit;width:100%;min-height:44px;border:1px solid #cdd5df;border-radius:10px;padding:0 10px}
 .note{background:#fff8e1;border:1px solid #f3d27a;border-radius:10px;padding:8px 10px;font-size:13px;margin:8px 0}
 #sheet{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;z-index:20}#sheet[hidden]{display:none}#sheet .box{background:#fff;width:100%;max-width:600px;margin:0 auto;border-radius:16px 16px 0 0;padding:16px;max-height:80vh;overflow:auto}
+textarea{font:inherit;width:100%;border:1px solid #cdd5df;border-radius:10px;padding:8px 10px;resize:vertical}select{font:inherit;width:100%;min-height:44px;border:1px solid #cdd5df;border-radius:10px;padding:0 6px;background:#fff}input[type=search]{font:inherit;width:100%;min-height:44px;border:1px solid #cdd5df;border-radius:10px;padding:0 10px}
+.cat{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;font-weight:700}.c1{background:#fff1e0;color:#a24f00}.c2{background:#fdecea;color:#b3261e}.c3{background:#e8f0fe;color:#1a56b8}.c4{background:#eef1f5;color:#4a5566}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.chip{min-height:40px;border-radius:999px;padding:6px 12px;font-size:14px;border:1px solid #cdd5df;background:#fff}.chip.on{border:2px solid var(--navy);font-weight:700;box-shadow:0 0 0 2px #dbe4f0}.chip.c1.on{background:#fff1e0}.chip.c2.on{background:#fdecea}.chip.c3.on{background:#e8f0fe}.chip.c4.on{background:#eef1f5}
+.note-c{cursor:pointer}.note-c .nh,.nh{display:flex;align-items:center;gap:8px}.note-c .ns{font-size:13px;color:var(--mut);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nt{white-space:pre-wrap;word-break:break-word;margin-top:4px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.nt.full{display:block;-webkit-line-clamp:unset}
+.ph{margin:8px 0;color:var(--mut);font-size:13px}.ph img{display:block;max-width:100%;max-height:60vh;border-radius:10px;border:1px solid var(--line)}.filebtn{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;border:1px solid #cdd5df;border-radius:10px;background:#fff;cursor:pointer}.nf select{margin-top:2px}
 </style>
 </head>
 <body>
 <header><b>パトロール履歴</b><small id="status"></small></header>
 <main id="main"><p>読み込み中…</p></main>
-<nav id="nav" hidden><a href="#month" data-nav="month"><span>📋</span>今月</a><a href="#year" data-nav="year"><span>📅</span>年度</a><a href="#check" data-nav="check"><span>🔍</span>除外チェック</a><a href="#settings" data-nav="settings"><span>⚙️</span>設定</a></nav>
+<nav id="nav" hidden><a href="#month" data-nav="month"><span>📋</span>今月</a><a href="#year" data-nav="year"><span>📅</span>年度</a><a href="#notes" data-nav="notes"><span>💡</span>気づき</a><a href="#check" data-nav="check"><span>🔍</span>除外チェック</a><a href="#settings" data-nav="settings"><span>⚙️</span>設定</a></nav>
 <div id="sheet" hidden></div>
 <script type="module" src="patrol.js"></script>
 </body>

@@ -3,6 +3,7 @@ import CFG from './patrol-config.js';
 import { encryptSecret, decryptSecret } from './crypto.js';
 import { GitHubStore, ConflictError } from './store.js';
 import * as P from './patrol-core.js';
+import * as N from './patrol-notes.js';
 
 const $ = s => document.querySelector(s), main = $('#main');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,18 +17,19 @@ const S = { demo: new URLSearchParams(location.search).has('demo'), view: 'month
 // ---------- 読み込み ----------
 function stores(token) {
   const mk = path => new GitHubStore({ owner: CFG.owner, repo: CFG.repo, branch: CFG.branch, path, token });
-  return { roumu: mk(CFG.roumuPath), events: mk(`${CFG.dir}/events.json`), settings: mk(`${CFG.dir}/settings.json`) };
+  return { roumu: mk(CFG.roumuPath), events: mk(`${CFG.dir}/events.json`), settings: mk(`${CFG.dir}/settings.json`), notes: mk(`${CFG.dir}/notes.json`), photos: new N.PhotoStore({ owner: CFG.owner, repo: CFG.repo, branch: CFG.branch, token }) };
 }
 async function openDoc(doc, pass) { const t = await decryptSecret(doc.blob, pass); if (t == null) throw new Error('合言葉が違うか、データが壊れています'); return JSON.parse(t); }
 async function loadAll() {
   if (S.demo) {
     const d = await (await fetch('patrol-demo.json', { cache: 'no-store' })).json();
-    Object.assign(S, { today: d.today, roumu: d.roumu, meta: d.events, settings: { ...P.DEFAULT_SETTINGS(), ...d.settings }, settingsSha: null });
+    Object.assign(S, { today: d.today, roumu: d.roumu, meta: d.events, settings: { ...P.DEFAULT_SETTINGS(), ...d.settings }, settingsSha: null, notes: d.notes || [], notesSha: null, notesErr: '' });
+    S.demoPhotos = S.demoPhotos || {}; for (const n of S.notes) if (n.photo && !S.demoPhotos[n.photo]) S.demoPhotos[n.photo] = await N.demoPicture(n.photo.endsWith('2') ? 1 : 0);
   } else {
     const st = stores(S.token); S.st = st;
     const [r, e] = await Promise.all([st.roumu.load(), st.events.load().catch(err => { if (/404/.test(err.message)) return null; throw err; })]);
     S.roumu = r.doc; S.meta = e ? await openDoc(e.doc, S.pass) : { events: [], colorAvailable: false };
-    await loadSettings(); S.today = jstToday();
+    await loadSettings(); await loadNotes(); S.today = jstToday();
   }
   recompute();
   S.ym = S.ym || S.today.slice(0, 7); S.fy = S.fy || P.fyOf(S.today);
@@ -35,6 +37,11 @@ async function loadAll() {
 async function loadSettings() {
   try { const s = await S.st.settings.load(); S.settings = { ...P.DEFAULT_SETTINGS(), ...(await openDoc(s.doc, S.pass)) }; S.settingsSha = s.sha; }
   catch (err) { if (!/404/.test(err.message)) throw err; S.settings = P.DEFAULT_SETTINGS(); S.settingsSha = undefined; }
+}
+// 気づき（notes.json）：読めなくても他の画面は使えるようにする
+async function loadNotes() {
+  try { const r = await S.st.notes.load(); const d = await openDoc(r.doc, S.pass); S.notes = d.notes || []; S.notesSha = r.sha; S.notesErr = ''; }
+  catch (err) { if (/404/.test(err.message)) { S.notes = []; S.notesSha = undefined; S.notesErr = ''; } else { if (err.auth) throw err; S.notes = S.notes || []; S.notesErr = err.message; } }
 }
 const recompute = () => { S.a = P.analyze(S.meta.events || [], S.roumu, S.settings); S.byKey = Object.fromEntries(S.a.allSites.map(s => [s.key, s])); };
 const catTag = c => c === '改修' ? '<span class="tag kai">改修</span>' : c === '新築' ? '<span class="tag">新築</span>' : '<span class="tag">区分未確認</span>';
@@ -51,6 +58,18 @@ async function changeSettings(fn, msg) {
     catch (e) { if (!(e instanceof ConflictError)) { toast('保存できませんでした：' + e.message); return; } await loadSettings(); }
   }
   toast('ほかの端末と同時に保存されたため、保存できませんでした。もう一度どうぞ');
+}
+// 気づきの保存（暗号化・ぶつかったら読み直してもう一度）。うまくいけば true
+async function changeNotes(fn, msg) {
+  if (S.demo) { S.notes = fn(S.notes); render(); toast('（お試し：保存はしません）'); return true; }
+  if (S.notesErr) { toast('気づきを読み込めていないため保存しません。開き直してください'); return false; }
+  for (let i = 0; i < 3; i++) {
+    const next = fn(structuredClone(S.notes));
+    const doc = { schema: P.SCHEMA, kind: N.NOTES_KIND, blob: await encryptSecret(JSON.stringify({ notes: next }), S.pass, 300000) };
+    try { S.notesSha = await S.st.notes.save(doc, S.notesSha, `パトロール：${msg}（暗号化）`); S.notes = next; render(); toast('保存しました'); return true; }
+    catch (e) { if (!(e instanceof ConflictError)) { toast('保存できませんでした：' + (e.auth ? '鍵の期限切れかもしれません' : e.message)); return false; } await loadNotes(); }
+  }
+  toast('ほかの端末と同時に保存されたため、保存できませんでした。もう一度どうぞ'); return false;
 }
 function toast(t) { $('#status').textContent = t; clearTimeout(S.tt); S.tt = setTimeout(() => { $('#status').textContent = statusText(); }, 3000); }
 const statusText = () => S.demo ? 'お試し表示（架空のデータ）' : (S.meta && S.meta.syncedAt ? `同期 ${md(S.meta.syncedAt.slice(0, 10))}` : '');
@@ -90,7 +109,92 @@ function viewSite(key) {
   const vs = P.visitsOf(S.a, key).sort((a, b) => b.date.localeCompare(a.date)), ex = S.a.events.filter(e => e.status === 'exclude' && e.site === key);
   return `<p><button data-back>← もどる</button></p><h2>${esc(s.name)}</h2><p class="muted">${s.category || '区分未確認'}${s.done ? '・終了' : ''}${s.trades.length ? '・' + s.trades.join('/') : ''}${s.team ? '・' + esc(s.team) : ''}${s.extra ? '・パトロール専用' : ''}${s.mergedNames ? '・まとめた名前：' + esc(s.mergedNames.join('、')) : ''}${s.note ? '・' + esc(s.note) : ''}・今年度 ${vs.filter(e => P.fyOf(e.date) === S.fy).length}回</p>
   <div class="card"><h3 style="margin-top:0">行った日</h3>${vs.length ? vs.map(e => evRow(e, `<div class="why">${esc(e.how || '')}${e.colorUnknown && !S.demo ? '・色未確認' : ''}</div><div class="acts"><button data-ov="${esc(e.id)}" data-ovs="exclude">行っていない（外す）</button>${e.manual ? `<button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}</div>`)).join('') : '<p class="muted">まだありません</p>'}</div>
+  ${siteNotesBlock(key)}
   ${ex.length ? `<div class="card"><h3 style="margin-top:0">数えていない予定</h3>${ex.map(e => evRow(e, `<span class="pill ${e.reason}">${esc(reasonText(e))}</span>${e.manual ? ` <button data-ov="${esc(e.id)}" data-ovs="clear">元に戻す</button>` : ''}`)).join('')}</div>` : ''}`;
+}
+// ---------- 気づき ----------
+const catPill = c => `<span class="cat ${N.CAT_CLASS[c] || 'c4'}">${esc(c)}</span>`;
+const noteSite = n => n.site ? (S.byKey[n.site] ? S.byKey[n.site].name : (n.siteName || n.site)) : '現場なし（全体）';
+function noteCard(n, withSite = true) {
+  return `<div class="card note-c" data-note="${esc(n.id)}"><div class="nh"><b>${md(n.date)}(${wd(n.date)})</b>${catPill(n.cat)}${n.photo ? '<span title="写真あり">📷</span>' : ''}</div>${withSite ? `<div class="ns">🏗 ${esc(noteSite(n))}</div>` : ''}<div class="nt">${esc(n.text)}</div></div>`;
+}
+function siteNotesBlock(key) {
+  const ns = N.filterNotes(S.notes || [], { site: key });
+  return `<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h3 style="margin:0">💡 この現場の気づき（${ns.length}件）</h3><button class="primary" data-nadd="${esc(key)}">＋ 気づきを追加</button></div>${ns.map(n => noteCard(n, false)).join('') || '<p class="muted small">まだありません</p>'}</div>`;
+}
+function notesSiteOptions(sel, allLabel) {
+  const used = new Set((S.notes || []).map(n => n.site).filter(Boolean));
+  const sites = S.a.allSites.filter(s => !s.hidden && (!s.done || used.has(s.key) || s.key === sel)).sort((a, b) => (used.has(b.key) - used.has(a.key)) || a.name.localeCompare(b.name, 'ja'));
+  const orphan = [...used].filter(k => !S.byKey[k] && k === sel);
+  return `<option value="">${allLabel}</option>${sites.map(s => `<option value="${esc(s.key)}" ${s.key === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${orphan.map(k => `<option value="${esc(k)}" selected>${esc(k)}</option>`).join('')}`;
+}
+function notesList() {
+  const f = S.nf || {}, all = S.notes || [], ns = N.filterNotes(all, f, siteName);
+  return `<p class="muted small" style="margin:4px 2px">${ns.length}件${ns.length !== all.length ? `（全${all.length}件中）` : ''}・新しい順</p>${ns.map(n => noteCard(n)).join('') || `<p class="muted">${all.length ? '当てはまる気づきはありません' : 'まだありません。現場で気づいたことを「＋ 気づきを追加」から残せます。'}</p>`}`;
+}
+function viewNotes() {
+  const f = S.nf = S.nf || { q: '', cat: '', site: '' };
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h2>💡 気づき</h2><button class="primary" data-nadd="">＋ 気づきを追加</button></div>
+  ${S.notesErr ? `<div class="note">気づきを読み込めませんでした：${esc(S.notesErr)}（開き直してください）</div>` : ''}
+  <div class="card nf"><input type="search" id="nq" placeholder="🔎 語句で探す（例：スポコン、打ち継ぎ）" value="${esc(f.q)}" enterkeyhint="search">
+  <div class="chips" role="group" aria-label="カテゴリ"><button class="chip ${f.cat ? '' : 'on'}" data-nfcat="">すべて</button>${N.CATS.map(c => `<button class="chip ${N.CAT_CLASS[c]} ${f.cat === c ? 'on' : ''}" data-nfcat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+  <select id="nsite" aria-label="現場">${notesSiteOptions(f.site, 'すべての現場')}</select></div>
+  <div id="nlist">${notesList()}</div>`;
+}
+function noteForm(n) {
+  S.form = { id: n ? n.id : null, blob: null, w: 0, h: 0, removePhoto: false, old: n || null };
+  const site = n ? n.site : (S.formSite || '');
+  sheet(`<h3 style="margin-top:0">${n ? '✏️ 気づきを直す' : '💡 気づきを追加'}</h3><form id="nform">
+  <label>本文（必須）<textarea id="ntext" rows="5" placeholder="例：打ち継ぎ面のスポコンに隙間。職長が気づいて埋めるべき">${esc(n ? n.text : '')}</textarea></label>
+  <div class="small muted" style="margin-top:8px">カテゴリ</div><div class="chips" id="ncats">${N.CATS.map(c => `<button type="button" class="chip ${N.CAT_CLASS[c]} ${n && n.cat === c ? 'on' : ''}" data-ncat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+  <div style="display:flex;gap:6px;margin-top:8px"><label style="flex:2;min-width:0">現場<select id="nsitef">${notesSiteOptions(site, '現場なし（全体）')}</select></label><label style="flex:0 0 150px">日付<input type="date" id="ndate" value="${esc(n ? n.date : S.today)}"></label></div>
+  <div class="small muted" style="margin-top:8px">写真（任意・1枚）</div>
+  <div id="nphwrap">${n && n.photo ? `<div class="ph" data-phpath="${esc(n.photo)}">写真を読み込み中…</div>` : ''}</div>
+  <div class="acts"><label class="filebtn">📷 写真を撮る・選ぶ<input type="file" id="nfile" accept="image/*" hidden></label><button type="button" data-nphclear ${n && n.photo ? '' : 'hidden'}>写真を外す</button></div>
+  <p id="nmsg" class="small" style="color:var(--ng);min-height:1em"></p>
+  <button type="submit" class="primary" id="nsave" style="width:100%">保存</button></form>`);
+  const ph = $('#sheet [data-phpath]'); if (ph) showPhoto(ph);
+}
+function noteDetail(id) {
+  const n = (S.notes || []).find(x => x.id === id); if (!n) return;
+  sheet(`<div class="nh"><b>${md(n.date)}(${wd(n.date)})</b>${catPill(n.cat)}</div><h3 style="margin:6px 0">🏗 ${esc(noteSite(n))}</h3><div class="nt full">${esc(n.text)}</div>
+  ${n.photo ? `<div class="ph" data-phpath="${esc(n.photo)}">写真を読み込み中…</div>` : ''}
+  <p class="muted small">登録 ${esc((n.created || '').slice(0, 10))}${n.updated && n.updated !== n.created ? `・更新 ${esc(n.updated.slice(0, 10))}` : ''}</p>
+  <div class="acts"><button data-nedit="${esc(n.id)}">✏️ 直す</button><button data-ndel="${esc(n.id)}" style="color:var(--ng)">🗑 削除</button>${n.site && S.byKey[n.site] ? `<button data-gosite="${esc(n.site)}">現場の詳細へ</button>` : ''}</div>`);
+  const ph = $('#sheet [data-phpath]'); if (ph) showPhoto(ph);
+}
+async function photoBlob(path) {
+  S.photoCache = S.photoCache || {}; if (S.photoCache[path]) return S.photoCache[path];
+  const b = S.demo ? S.demoPhotos[path] : await S.st.photos.get(path, S.pass); if (!b) throw new Error('写真がありません');
+  return (S.photoCache[path] = URL.createObjectURL(b));
+}
+async function showPhoto(el) { try { const u = await photoBlob(el.dataset.phpath); el.innerHTML = `<img src="${u}" alt="気づきの写真">`; } catch (e) { el.textContent = '写真を読めませんでした：' + (e.auth ? '鍵の期限切れかもしれません' : e.message); } }
+async function saveNote() {
+  const F = S.form, msg = t => { $('#nmsg').textContent = t; };
+  const cat = ($('#ncats .chip.on') || {}).dataset?.ncat || '', siteKey = $('#nsitef').value, now = new Date().toISOString();
+  const note = { id: F.id || N.newId(), date: $('#ndate').value, site: siteKey, siteName: siteKey ? siteName(siteKey) : '', cat, text: $('#ntext').value.trim(), photo: F.old ? F.old.photo || null : null, created: F.old ? F.old.created : now, updated: now };
+  const bad = N.validNote(note); if (bad) { msg(bad); return; }
+  const btn = $('#nsave'); btn.disabled = true; btn.textContent = '保存中…';
+  const oldPhoto = note.photo; let newPath = null;
+  try {
+    if (F.blob) {
+      newPath = N.photoPath(CFG.dir, note.id);
+      if (S.demo) S.demoPhotos[newPath] = F.blob; else { btn.textContent = '写真を送信中…'; await S.st.photos.put(newPath, new Uint8Array(await F.blob.arrayBuffer()), S.pass); }
+      note.photo = newPath; note.photoW = F.w; note.photoH = F.h;
+    } else if (F.removePhoto) { note.photo = null; delete note.photoW; delete note.photoH; }
+  } catch (e) { msg('写真を保存できませんでした：' + (e.auth ? '鍵の期限切れかもしれません' : e.message)); btn.disabled = false; btn.textContent = '保存'; return; }
+  btn.textContent = '保存中…';
+  const ok = await changeNotes(list => N.upsertNote(list, note), F.old ? '気づきを直す' : '気づきを追加');
+  if (!ok) { if (newPath && !S.demo) S.st.photos.del(newPath).catch(() => {}); if ($('#nsave')) { btn.disabled = false; btn.textContent = '保存'; } return; }
+  if (oldPhoto && oldPhoto !== note.photo && !S.demo) S.st.photos.del(oldPhoto).catch(() => toast('古い写真のファイルは消せませんでした（気づきは保存済み）'));
+  $('#sheet').hidden = true; S.form = null;
+}
+async function deleteNote(id) {
+  const n = (S.notes || []).find(x => x.id === id); if (!n) return;
+  if (!confirm(`この気づきを削除しますか？\n${md(n.date)} ${n.cat}\n（元に戻せません）`)) return;
+  const ok = await changeNotes(list => N.removeNote(list, id), '気づきを削除'); if (!ok) return;
+  $('#sheet').hidden = true;
+  if (n.photo && !S.demo) S.st.photos.del(n.photo).catch(() => toast('写真のファイルは消せませんでした（気づきは削除済み）'));
 }
 const KIND = { ask: '金子さんに確認中', ambiguous: '候補が2つ以上', nosite: '現場が分からない', similar: '現場名に似ているがパトロールか不明', kind: 'パトロールか分からない（式・謝罪など）' };
 function siteSelect(e) {
@@ -133,14 +237,17 @@ function viewSettings() {
 function render() {
   const h = location.hash.replace('#', '') || 'month', [v, arg] = h.split('/');
   S.view = v; document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === v || (v === 'site' && a.dataset.nav === 'month')));
-  main.innerHTML = v === 'year' ? viewYear() : v === 'check' ? viewCheck() : v === 'settings' ? viewSettings() : v === 'site' ? viewSite(decodeURIComponent(arg || '')) : viewMonth();
+  main.innerHTML = v === 'notes' ? viewNotes() : v === 'year' ? viewYear() : v === 'check' ? viewCheck() : v === 'settings' ? viewSettings() : v === 'site' ? viewSite(decodeURIComponent(arg || '')) : viewMonth();
   $('#status').textContent = statusText();
 }
 function sheet(html) { const s = $('#sheet'); s.innerHTML = `<div class="box">${html}<p><button data-close style="width:100%">閉じる</button></p></div>`; s.hidden = false; }
 
 main.addEventListener('click', e => {
-  const t = e.target.closest('button,[data-site],[data-cell]'); if (!t) return;
-  if (t.dataset.ym) { S.ym = addYm(S.ym, +t.dataset.ym); render(); }
+  const t = e.target.closest('button,[data-site],[data-cell],[data-note]'); if (!t) return;
+  if (t.dataset.nadd !== undefined) { S.formSite = t.dataset.nadd; noteForm(null); }
+  else if (t.dataset.note) noteDetail(t.dataset.note);
+  else if (t.dataset.nfcat !== undefined) { S.nf.cat = t.dataset.nfcat; main.querySelectorAll('[data-nfcat]').forEach(b => b.classList.toggle('on', b.dataset.nfcat === S.nf.cat)); $('#nlist').innerHTML = notesList(); }
+  else if (t.dataset.ym) { S.ym = addYm(S.ym, +t.dataset.ym); render(); }
   else if (t.dataset.fy) { S.fy += +t.dataset.fy; render(); }
   else if (t.dataset.cell) { const [k, ym] = t.dataset.cell.split('|'), vs = P.visitsOf(S.a, k).filter(x => x.date.startsWith(ym)); sheet(`<h3>${esc(siteName(k))}<br><small class="muted">${ymLabel(ym)}：${vs.length}回</small></h3>${vs.map(x => evRow(x)).join('') || '<p class="muted">この月は行っていません</p>'}<p><button data-gosite="${esc(k)}">現場の詳細へ</button></p>`); }
   else if (t.dataset.showsp) { const p = S.settings.special.find(x => x.id === t.dataset.showsp); sheet(specialBlock(p)); }
@@ -183,7 +290,26 @@ main.addEventListener('click', e => {
   else if (t.dataset.logout !== undefined) { if (!confirm('この端末のログインを消しますか？次に開くとき合言葉が要ります。')) return; forget().then(() => location.reload()); }
   else if (t.dataset.site) location.hash = 'site/' + encodeURIComponent(t.dataset.site);
 });
-$('#sheet').addEventListener('click', e => { const t = e.target; if (t.id === 'sheet' || t.dataset.close !== undefined) $('#sheet').hidden = true; else if (t.dataset.gosite) { $('#sheet').hidden = true; location.hash = 'site/' + encodeURIComponent(t.dataset.gosite); } else { const r = t.closest('[data-site]'); if (r) { $('#sheet').hidden = true; location.hash = 'site/' + encodeURIComponent(r.dataset.site); } } });
+main.addEventListener('input', e => { if (e.target.id === 'nq') { S.nf.q = e.target.value; $('#nlist').innerHTML = notesList(); } });
+main.addEventListener('change', e => { if (e.target.id === 'nsite') { S.nf.site = e.target.value; $('#nlist').innerHTML = notesList(); } });
+$('#sheet').addEventListener('change', async e => {
+  if (e.target.id !== 'nfile' || !e.target.files[0]) return;
+  const w = $('#nphwrap'), btn = $('#nsave'); w.innerHTML = '<div class="ph">写真を小さくしています…</div>'; btn.disabled = true;
+  try { const r = await N.shrinkImage(e.target.files[0]); Object.assign(S.form, { blob: r.blob, w: r.w, h: r.h, removePhoto: false }); w.innerHTML = `<div class="ph"><img src="${URL.createObjectURL(r.blob)}" alt="選んだ写真"></div><p class="muted small">${r.w}×${r.h}・${Math.round(r.blob.size / 1024)}KB（元 ${Math.round(r.orig / 1024)}KB）</p>`; $('#sheet [data-nphclear]').hidden = false; }
+  catch (err) { w.innerHTML = ''; $('#nmsg').textContent = err.message; }
+  btn.disabled = false; e.target.value = '';
+});
+$('#sheet').addEventListener('submit', e => { if (e.target.id === 'nform') { e.preventDefault(); saveNote(); } });
+$('#sheet').addEventListener('click', e => { const t = e.target;
+  if (t.closest('#nform') || t.dataset.nedit || t.dataset.ndel) {
+    if (t.dataset.ncat) { $('#sheet').querySelectorAll('[data-ncat]').forEach(b => b.classList.toggle('on', b === t)); }
+    else if (t.dataset.nphclear !== undefined) { Object.assign(S.form, { blob: null, removePhoto: true }); $('#nphwrap').innerHTML = '<p class="muted small">写真なしで保存します</p>'; t.hidden = true; }
+    else if (t.dataset.nedit) noteForm((S.notes || []).find(x => x.id === t.dataset.nedit));
+    else if (t.dataset.ndel) deleteNote(t.dataset.ndel);
+    return;
+  }
+  if (t.id === 'sheet' && S.form && $('#nform')) return; // 入力中は外側を押しても閉じない（「閉じる」で閉じる）
+  if (t.id === 'sheet' || t.dataset.close !== undefined) $('#sheet').hidden = true; else if (t.dataset.gosite) { $('#sheet').hidden = true; location.hash = 'site/' + encodeURIComponent(t.dataset.gosite); } else { const r = t.closest('[data-site]'); if (r) { $('#sheet').hidden = true; location.hash = 'site/' + encodeURIComponent(r.dataset.site); } } });
 addEventListener('hashchange', () => { $('#sheet').hidden = true; render(); scrollTo(0, 0); });
 
 // ---------- ログイン（この端末で覚える） ----------
